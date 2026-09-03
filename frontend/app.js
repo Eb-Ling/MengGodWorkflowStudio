@@ -1610,6 +1610,25 @@ ${textureCleanup}
 `;
 };
 function hasConnectedFragmentOutput(graph) { return graph.nodes.some(node=>node.typeId==="io.output"&&graph.links.some(link=>link.toNode===node.id&&link.toSocket==="color"&&graph.nodes.some(source=>source.id===link.fromNode))); }
+function exportReadiness(graph, config=projectConfig()) {
+  if(!hasConnectedFragmentOutput(graph)) return {ready:false, message:"未连接片段输出：请将结果连接到“片段输出”的 color 输入端口。"};
+  try {
+    if(!validJavaClassName(config.className)) throw new Error(`Java 类名无效：${config.className}。请使用非关键字的字母、数字或下划线名称，且不能以数字开头。`);
+    validateGraphProperties(graph);
+    validateRuntimeInputs(graph);
+    return {ready:true, message:"片段输出已连接，参数校验通过，可导出运行文件。"};
+  } catch(error) {
+    return {ready:false, message:`导出前校验失败：${error.message||error}`};
+  }
+}
+function renderCompileStatus(graph) {
+  const readiness=exportReadiness(graph),message=document.querySelector("#compile-message"),pill=document.querySelector(".compile-card .pill");
+  if(!message||!pill)return readiness;
+  message.textContent=readiness.message;
+  pill.textContent=readiness.ready?"可导出":"不可导出";
+  pill.classList.toggle("invalid",!readiness.ready);
+  return readiness;
+}
 function validateRuntimeInputs(graph){
   const supported=new Set(["BOOL","INT","UINT","FLOAT","VEC2","VEC3","VEC4"]),inputs=graphInputs(graph),textures=graphTextureInputs(graph),unsupported=inputs.filter(input=>!supported.has(typeKey(input.type)));
   if(unsupported.length)throw new Error(`当前 Java Plugin 的公共 uniform 参数不支持：${unsupported.map(input=>`${input.name}: ${typeLabel(input.type)}`).join("，")}。请改用 bool/int/uint/float/vec2/vec3/vec4，或先在工作流内部转换。`);
@@ -1625,7 +1644,7 @@ function validateRuntimeInputs(graph){
     byName.set(declaration.name,declaration);
   });
 }
-function exportRuntime(strict=false){const config=projectConfig(),graph=store.snapshot();if(!hasConnectedFragmentOutput(graph)){const message="导出失败：请先将结果连接到“片段输出”的 color 输入端口。";document.querySelector("#footer-message").textContent=message;if(strict)throw new Error(message);return null;}try{if(!validJavaClassName(config.className))throw new Error(`Java 类名无效：${config.className}。请使用非关键字的字母、数字或下划线名称，且不能以数字开头。`);validateGraphProperties(graph);validateRuntimeInputs(graph);}catch(error){const message=`导出失败：${error.message||error}`;document.querySelector("#footer-message").textContent=message;if(strict)throw error;return null;}saveWorkflow();lastGeneratedSources={java:{filename:`${config.className}.java`,content:pluginSource(config,graph)},vertex:{filename:`${config.className}.vert`,content:vertexSource()},fragment:{filename:`${config.className}.frag`,content:fragmentSource(graph)}};Object.values(lastGeneratedSources).forEach(file=>download(file.filename,file.content));workflowBridge.publish(graph);document.querySelector("#footer-message").textContent="已导出 Java + 顶点着色器 + 片段着色器";return lastGeneratedSources;}
+function exportRuntime(strict=false){const config=projectConfig(),graph=store.snapshot(),readiness=renderCompileStatus(graph);if(!readiness.ready){const message=`导出失败：${readiness.message}`;document.querySelector("#footer-message").textContent=message;if(strict)throw new Error(message);return null;}saveWorkflow();lastGeneratedSources={java:{filename:`${config.className}.java`,content:pluginSource(config,graph)},vertex:{filename:`${config.className}.vert`,content:vertexSource()},fragment:{filename:`${config.className}.frag`,content:fragmentSource(graph)}};Object.values(lastGeneratedSources).forEach(file=>download(file.filename,file.content));workflowBridge.publish(graph);document.querySelector("#footer-message").textContent="已导出 Java + 顶点着色器 + 片段着色器";return lastGeneratedSources;}
 document.querySelector("#node-search").addEventListener("input", e => renderCatalog(e.target.value)); document.querySelector("#new-graph").addEventListener("click", () => { ui.selected = null; store.reset(); });
 document.querySelector("#add-demo").addEventListener("click", addDemo);document.querySelector("#save-workflow").addEventListener("click",saveWorkflow);document.querySelector("#export-runtime").addEventListener("click",exportRuntime);
 document.querySelector("#import-workflow").addEventListener("click",()=>{document.querySelector("#import-status").textContent="尚未选择文件。";document.querySelector("#import-dialog").showModal();});
@@ -1646,7 +1665,7 @@ bridgePromptButton.addEventListener("click",()=>{bridgePromptBox.value=bridgePro
 document.querySelector("#close-workflow-dialog").addEventListener("click",()=>document.querySelector("#workflow-dialog").close());
 document.querySelector("#create-workflow").addEventListener("click",()=>{const config={id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value.replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:document.querySelector("#shader-directory").value||"data/shaders/generated"};openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
 document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=projectConfig();config.title=document.querySelector("#workflow-title").value||config.title;config.className=document.querySelector("#plugin-class-name").value.replace(/[^A-Za-z0-9_]/g,"")||config.className;config.shaderDir=document.querySelector("#shader-directory").value||config.shaderDir;sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));saveWorkflow();renderWorkflowLibrary();});
-store.subscribe(graph => { sessionStorage.setItem("workflow.graph",JSON.stringify(graph)); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); workflowBridge.publish(graph); });
+store.subscribe(graph => { sessionStorage.setItem("workflow.graph",JSON.stringify(graph)); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph); workflowBridge.publish(graph); });
 setInterval(() => workflowBridge.pull(), 250);
 setInterval(() => workflowBridge.publish(store.snapshot()), 2000);
 function addDemo() {
@@ -1655,3 +1674,4 @@ function addDemo() {
   store.command("CONNECT",{link:{fromNode:uv.id,fromSocket:"uv",toNode:center.id,toSocket:"uv"}}); store.command("CONNECT",{link:{fromNode:center.id,fromSocket:"value",toNode:length.id,toSocket:"value"}});
 }
 renderCatalog();
+renderCompileStatus(store.snapshot());
