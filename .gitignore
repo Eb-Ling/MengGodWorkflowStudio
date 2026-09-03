@@ -1,0 +1,21 @@
+# Node and local runtime state
+node_modules/
+npm-debug.log*
+*.log
+
+# Generated verification artifacts
+build/*.log
+build/*-results.json
+build/tmp-*.ps1
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Packaged application output
+dist/
+out/
+release/
