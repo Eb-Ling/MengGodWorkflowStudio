@@ -1,0 +1,31 @@
+{
+  "name": "menggod-workflow-studio",
+  "version": "1.0.3",
+  "description": "MengGod GLSL workflow editor",
+  "author": "Eb-Ling",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.menggod.workflowstudio",
+    "productName": "MengGod Workflow Studio",
+    "directories": { "output": "dist" },
+    "files": ["main.cjs", "preload.cjs"],
+    "icon": "../assets/workflow-studio.ico",
+    "extraResources": [
+      { "from": "../frontend", "to": "frontend" },
+      { "from": "../ai-gateway", "to": "ai-gateway" },
+      { "from": "../AI_WORKFLOW_FORMAT.md", "to": "AI_WORKFLOW_FORMAT.md" },
+      { "from": "../assets", "to": "assets" }
+    ],
+    "win": { "target": ["portable", "nsis"], "artifactName": "MengGod-Workflow-Studio-${version}-${arch}.${ext}" },
+    "nsis": { "oneClick": true, "perMachine": false, "allowToChangeInstallationDirectory": false }
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

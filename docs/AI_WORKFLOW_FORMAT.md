@@ -2,7 +2,7 @@
 
 AI 不需要直接操作编辑器，也不需要 MCP。只要根据本文档输出一个 UTF-8 JSON 文件，用户在编辑器点击“导入工作流”即可。
 
-页面内也提供可选的 MCP 桥接设置：打开“工作流”窗口，填写桥接端口并点击“检测桥接”，随后可点击“复制 MCP 配置与接入提示”。复制内容会同时包含桥接启动命令、完整 `mcpServers` 配置、`WORKFLOW_BRIDGE_URL` 环境变量和 Agent 操作规则。桥接服务仍需由用户启动；浏览器无法直接启动本机程序。
+页面内也提供可选的 MCP 桥接设置：打开“工作流”窗口，填写桥接端口并点击“检测桥接”，随后可点击“显示 MCP 配置与接入提示”。浏览器/源码版需要用户启动桥接服务；桌面 EXE 会自动启动页面桥接，并在提示中给出当前真实端口与无需 Node.js 的 Electron 配置。stdio MCP 服务始终由 MCP 客户端按需启动。
 
 MCP 读取和编辑的是浏览器当前正在操作的草稿，不要求先保存。所有写入会等待页面实际应用后才返回，并可使用 `expectedRevision` 防止覆盖他人刚做的修改。除 `workflow_get_current`、`workflow_list_node_types` 外，Agent 可使用 `workflow_list_resources` 获取已保存工作流、自定义节点、工作流节点、选择和顶点变换；使用 `workflow_submit_commands` 编辑节点/连线/属性；使用具名的 `workflow_create`、`workflow_save`、`workflow_open`、`workflow_delete`、`workflow_import`、`workflow_set_project`、`workflow_set_vertex_transform`、`workflow_set_canvas`、`workflow_select`、`workflow_modify_selection`、`workflow_upsert_custom_node`、`workflow_expand_workflow_node` 和 `workflow_export_runtime` 覆盖页面功能。`workflow_apply_action` 只为兼容旧客户端保留。完整清单见 `ai-gateway/README.md`。
 
@@ -21,7 +21,9 @@ MCP 读取和编辑的是浏览器当前正在操作的草稿，不要求先保�
     "id": "energy_cloud",
     "title": "Energy Cloud",
     "className": "EnergyCloudPlugin",
-    "shaderDir": "data/shaders/generated"
+    "shaderDir": "data/shaders/generated",
+    "previewWidth": 1024,
+    "previewHeight": 1024
   },
   "graph": {
     "schemaVersion": 1,

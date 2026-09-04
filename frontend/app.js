@@ -260,6 +260,7 @@ const previewClock = { enabled: sessionStorage.getItem("workflow.previewTimeEnab
 const workflowBridge = (() => {
   const requestedPort=Number(new URLSearchParams(location.search).get("bridgePort"));
   let port = requestedPort || Number(localStorage.getItem("workflow.bridgePort") || 4174);
+  if(requestedPort)localStorage.setItem("workflow.bridgePort",String(port));
   let cursor = 0;
   let pulling = false;
   const base = () => `http://127.0.0.1:${port}`;
@@ -286,7 +287,7 @@ const workflowBridge = (() => {
   async function acknowledge(requestId,ok,error="") { try { await fetch(`${base()}/v1/ack`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({requestId,ok,error,revision:store.snapshot().revision})}); } catch (_) {} }
   function setPort(value) { port = Math.max(1, Math.min(65535, Number(value) || 4174)); localStorage.setItem("workflow.bridgePort", String(port)); cursor = 0; }
   function url() { return base(); }
-  return { publish, pull, setPort, url };
+  return { publish, pull, setPort, url, port:()=>port };
 })();
 function applyBridgeAction(type, payload) {
   if (type === "SAVE_WORKFLOW") saveWorkflow();
@@ -312,7 +313,8 @@ function applyBridgeAction(type, payload) {
   else if (type === "ADD_DEMO") addDemo();
   workflowBridge.publish(store.snapshot());
 }
-function bridgeProjectConfig(payload={},base=newWorkflowConfig()){return {id:String(payload.id||base.id||`workflow_${Date.now()}`),title:String(payload.title||base.title||"Untitled Workflow"),className:String(payload.className||base.className||"GeneratedCombatLayerPlugin").replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:String(payload.shaderDir||base.shaderDir||"data/shaders/generated")};}
+function previewResolution(config=projectConfig()){const value=(key,fallback)=>Math.max(64,Math.min(4096,Math.round(Number(config[key])||fallback)));return {width:value("previewWidth",1024),height:value("previewHeight",1024)};}
+function bridgeProjectConfig(payload={},base=newWorkflowConfig()){const resolution=previewResolution({...base,previewWidth:payload.previewWidth??base.previewWidth,previewHeight:payload.previewHeight??base.previewHeight});return {id:String(payload.id||base.id||`workflow_${Date.now()}`),title:String(payload.title||base.title||"Untitled Workflow"),className:String(payload.className||base.className||"GeneratedCombatLayerPlugin").replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:String(payload.shaderDir||base.shaderDir||"data/shaders/generated"),previewWidth:resolution.width,previewHeight:resolution.height};}
 function bridgeVertexTransform(payload={}){const fallback=defaultVertexTransform(),vertices=Array.isArray(payload.vertices)&&payload.vertices.length===4?payload.vertices.map(pair=>[Number(pair?.[0])||0,Number(pair?.[1])||0]):fallback.vertices;return {vertices,tx:Number(payload.tx)||0,ty:Number(payload.ty)||0,sx:Number(payload.sx)||1,sy:Number(payload.sy)||1,rotation:Number(payload.rotation)||0};}
 function bridgeCustomDefinition(value){
   if(!value||typeof value!=="object")throw new Error("definition 必须是对象");
@@ -330,41 +332,37 @@ function bridgeCustomDefinition(value){
   if(!inputs.every(port=>/^[A-Za-z_][A-Za-z0-9_]*$/.test(port.name)&&isSupportedType(port.type))||!expression.trim())throw new Error("自定义节点输入端口或表达式无效");
   return {typeId,title,category:"自定义 GLSL",inputs,outputs:[{name:"value",type:output}],properties:{expression,helperSource:String(value.properties?.helperSource??value.helperSource??""),custom:true}};
 }
-const bridgePrompt = () => { const port=Number(localStorage.getItem("workflow.bridgePort")||4174), pagePath=location.pathname.replace(/\\/g,"/"), root=pagePath.includes("/frontend/")?pagePath.split("/frontend/")[0]:"D:/Starsector/mods/MengGod's legacy", mcpPath=`${root}/ai-gateway/mcp-server.mjs`.replace(/\\/g,"/"); return `# Workflow Shader MCP 接入说明
+const bridgePrompt = () => { const port=workflowBridge.port(),bridgeUrl=`http://127.0.0.1:${port}`,desktop=window.workflowDesktop||null,nodeConfig={command:"node",args:["/absolute/path/to/MengGodWorkflowStudio/ai-gateway/mcp-server.mjs"],env:{WORKFLOW_BRIDGE_URL:bridgeUrl}},desktopConfig=desktop?.executablePath&&desktop?.mcpServerPath?{command:desktop.executablePath,args:[desktop.mcpServerPath],env:{ELECTRON_RUN_AS_NODE:"1",WORKFLOW_BRIDGE_URL:bridgeUrl}}:null;return `# Workflow Shader MCP 接入说明
 
-这份说明同时配置页面桥接服务和 MCP 客户端，请按顺序执行。
+桥接地址：${bridgeUrl}
 
-## 1. 启动本地桥接服务
+## 桌面版 EXE
 
-Windows PowerShell：
+桌面版启动时会自动启动本地页面桥接。无需另开 server.mjs，也无需安装 Node.js。请保持编辑器窗口打开，再在 MCP 客户端中新建 STDIO 服务并填写下列 JSON（路径由当前桌面版自动提供）：
+
+\`\`\`json
+${JSON.stringify({mcpServers:{"workflow-shader":desktopConfig||{command:"<MengGod Workflow Studio.exe 的完整路径>",args:["<安装目录>/resources/ai-gateway/mcp-server.mjs"],env:{ELECTRON_RUN_AS_NODE:"1",WORKFLOW_BRIDGE_URL:bridgeUrl}}}},null,2)}
+\`\`\`
+
+## 浏览器 / 源码版
+
+先在项目根目录启动桥接服务：
+
 \`\`\`powershell
-cd "${root.replace(/"/g,'\\"')}/ai-gateway"
+cd <MengGodWorkflowStudio 项目目录>/ai-gateway
 $env:WORKFLOW_BRIDGE_PORT = "${port}"
 node server.mjs
 \`\`\`
 
-桥接地址：http://127.0.0.1:${port}
-页面内点击“检测桥接”确认连接。通过 file:/// 打开编辑器也受支持；修改 bridge 端口后请刷新页面一次，使工作流重新发布到桥接服务。
-
-## 2. 在 Codex 中添加自定义 MCP
-
-在 Codex 的“连接至自定义 MCP”页面填写：名称为 workflow-shader；类型选择 STDIO；启动命令推荐填写 C:/Program Files/nodejs/node.exe（避免 Codex 找不到 node）；参数新增一项并填入 mcp-server.mjs 的完整路径；环境变量新增 WORKFLOW_BRIDGE_URL，值为 http://127.0.0.1:${port}；工作目录填写 ${root}/ai-gateway。若使用 JSON 配置文件，则粘贴以下内容：
+然后在 MCP 客户端中新建 STDIO 服务。将 command 中的 node 替换为 Node.js 可执行文件完整路径（若客户端无法从 PATH 找到 node），并将 args 的占位路径替换为本机真实路径：
 
 \`\`\`json
-{
-  "mcpServers": {
-    "workflow-shader": {
-      "command": "node",
-      "args": ["${mcpPath}"],
-      "env": { "WORKFLOW_BRIDGE_URL": "http://127.0.0.1:${port}" }
-    }
-  }
-}
+${JSON.stringify({mcpServers:{"workflow-shader":nodeConfig}},null,2)}
 \`\`\`
 
-## 3. Agent 操作规则
+## 使用规则
 
-先调用 workflow_get_current、workflow_list_node_types 和 workflow_list_resources。创建节点使用稳定 typeId、真实端口名和唯一 nodeId，并提供 canvasX/canvasY；按数据流从左到右排版（阶段间隔约 260，行间隔约 120）。使用 workflow_submit_commands 编辑节点、连线、属性、名称和输出节点，必要时调用 workflow_auto_layout，并在写入时传入刚读取到的 expectedRevision。工作流管理使用 workflow_create、workflow_save、workflow_open、workflow_delete、workflow_import；顶点、画布、选择与批量操作使用对应的 workflow_set_* 和 workflow_modify_selection；自定义节点、工作流节点与导出也都有具名工具。每次写入都会等页面确认；完成后再次读取当前草稿验证连线和 io.output，再调用 workflow_export_runtime 并读取三份源码。workflow_apply_action 只用于兼容旧客户端。当前草稿无需保存即可编辑。`; };
+MCP 服务由 Codex、Claude Desktop 等客户端按需启动，因此 EXE 不会单独常驻一个 MCP 进程；EXE 自动启动的是页面桥接。连接完成后先调用 workflow_get_current、workflow_list_node_types 和 workflow_list_resources。写入操作使用 expectedRevision，完成后再次读取当前草稿验证 io.output.color，再调用 workflow_export_runtime。当前未保存草稿也可直接操作。`; };
 async function checkBridge() { const status=document.querySelector("#bridge-status");workflowBridge.setPort(document.querySelector("#bridge-port").value);try { const response=await fetch(`${workflowBridge.url()}/health`);if(!response.ok)throw new Error(`HTTP ${response.status}`);await workflowBridge.publish(store.snapshot());status.textContent=`已连接：${workflowBridge.url()}（已同步当前编辑草稿）`;status.style.color="#74dfa4";}catch(error){status.textContent=`未连接：请先启动 ai-gateway/server.mjs（${workflowBridge.url()}）`;status.style.color="#ff9eaa";} }
 const nodeLayer = document.querySelector("#node-layer"), wireLayer = document.querySelector("#wire-layer"), shell = document.querySelector("#canvas-shell"), graphTransform = document.querySelector("#graph-transform"), hint = document.querySelector(".canvas-hint");
 let renderedPreviewRevision = -1;
@@ -840,6 +838,8 @@ function drawNodePreviews(graph) {
     if(!canvas || !definition.outputs.length) return;
     if(!previewRenderer) { canvas.title="当前浏览器不支持 WebGL2 节点预览"; return; }
     const {gl,quad,surface}=previewRenderer;
+    const resolution=previewResolution(),width=resolution.width,height=resolution.height;
+    if(surface.width!==width||surface.height!==height){surface.width=width;surface.height=height;}
     let program=null;
     try {
       program=cachedPreviewProgram(gl,`${node.id}:${definition.outputs[0].name}`,previewFragmentSource(graph,node,definition.outputs[0]));
@@ -850,7 +850,8 @@ function drawNodePreviews(graph) {
       graphInputs(graph).forEach(input=>{const location=gl.getUniformLocation(program,input.name);if(location!==null){if(input.type==="BOOL")gl.uniform1i(location,input.defaultValue?1:0);else gl.uniform1f(location,input.defaultValue);}});
       graphTextureInputs(graph).forEach((input,index)=>{const textureNode=graph.nodes.find(item=>item.id===input.nodeId),location=gl.getUniformLocation(program,input.name),texture=previewTexture(gl,textureNode),aspectLocation=gl.getUniformLocation(program,textureAspectUniformName(input.name));gl.activeTexture(gl.TEXTURE0+index);gl.bindTexture(gl.TEXTURE_2D,texture.texture);if(location)gl.uniform1i(location,index);if(aspectLocation)gl.uniform2f(aspectLocation,texture.width,texture.height);});
       gl.viewport(0,0,surface.width,surface.height);gl.disable(gl.BLEND);gl.disable(gl.SCISSOR_TEST);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-      const context=canvas.getContext("2d");context.clearRect(0,0,canvas.width,canvas.height);context.drawImage(surface,0,0,canvas.width,canvas.height);canvas.title="GPU 节点预览：图修改时重新渲染";
+      const context=canvas.getContext("2d"),scale=Math.min(canvas.width/surface.width,canvas.height/surface.height),drawWidth=surface.width*scale,drawHeight=surface.height*scale;
+      context.clearRect(0,0,canvas.width,canvas.height);context.drawImage(surface,(canvas.width-drawWidth)/2,(canvas.height-drawHeight)/2,drawWidth,drawHeight);canvas.title=`GPU 节点预览：${width} × ${height}，图修改时重新渲染`;
     } catch (error) {
       const context=canvas.getContext("2d");context.clearRect(0,0,canvas.width,canvas.height);context.fillStyle="#331a23";context.fillRect(0,0,canvas.width,canvas.height);context.fillStyle="#ffb2bf";context.font="10px sans-serif";context.fillText("GLSL 预览失败",8,20);canvas.title=String(error.message||error);
     } finally { /* Cached programs are released only when the graph preview revision changes. */ }
@@ -864,7 +865,7 @@ shell.addEventListener("dblclick", e => { if (e.target !== shell && e.target !==
 window.addEventListener("pointermove", e => { if(ui.selectionBox){const end=toWorld(e.clientX,e.clientY),start=ui.selectionBox.start,left=Math.min(start.x,end.x),top=Math.min(start.y,end.y);Object.assign(ui.selectionBox.box.style,{left:`${left}px`,top:`${top}px`,width:`${Math.abs(end.x-start.x)}px`,height:`${Math.abs(end.y-start.y)}px`});return;}if (ui.view.pan) { ui.view.x=ui.view.pan.startX+e.clientX-ui.view.pan.x;ui.view.y=ui.view.pan.startY+e.clientY-ui.view.pan.y;updateView();return; } if (ui.drag) { const dx = (e.clientX - ui.drag.x)/ui.view.zoom, dy = (e.clientY - ui.drag.y)/ui.view.zoom;store.moveNodes(ui.drag.nodes.map(item=>({id:item.id,x:item.startX+dx,y:item.startY+dy}))); } const pending=ui.pendingWire||ui.disconnectWire; if (pending) { pending.x = e.clientX; pending.y = e.clientY; drawWires(store.snapshot()); } });
 window.addEventListener("pointerup", e => { if(ui.selectionBox){const end=toWorld(e.clientX,e.clientY),start=ui.selectionBox.start,left=Math.min(start.x,end.x),right=Math.max(start.x,end.x),top=Math.min(start.y,end.y),bottom=Math.max(start.y,end.y);ui.selectionBox.box.remove();ui.selectionBox=null;ui.selectedNodes.clear();store.snapshot().nodes.forEach(node=>{if(node.canvasX<right&&node.canvasX+206>left&&node.canvasY<bottom&&node.canvasY+150>top)ui.selectedNodes.add(node.id);});ui.selected=[...ui.selectedNodes][0]||null;renderGraph(store.snapshot());renderInspector(store.snapshot());return;}if(ui.view.pan){const backgroundPointer=ui.backgroundPointer;ui.view.pan=null;ui.backgroundPointer=null;shell.classList.remove("panning");if(backgroundPointer&&Math.hypot(e.clientX-backgroundPointer.x,e.clientY-backgroundPointer.y)<4){ui.selectedNodes.clear();ui.selected=null;renderGraph(store.snapshot());renderInspector(store.snapshot());}return;} ui.drag = null; const target = document.elementFromPoint(e.clientX, e.clientY); if(ui.disconnectWire){const link=ui.disconnectWire.link;store.command("DISCONNECT",{link});ui.disconnectWire=null;clearCompatible();return;} if (!ui.pendingWire) return; if (target?.classList.contains("port") && target.dataset.direction === "input" && compatible(ui.pendingWire.type,target.dataset.valueType)) store.command("CONNECT", { link: { fromNode: ui.pendingWire.fromNode, fromSocket: ui.pendingWire.fromSocket, toNode: target.dataset.nodeId, toSocket: target.dataset.socket } }); ui.pendingWire = null; clearCompatible(); drawWires(store.snapshot()); });
 window.addEventListener("keydown", e => { if (e.key === "Delete" && ui.selectedNodes.size && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) { const ids=[...ui.selectedNodes];ui.selectedNodes.clear();ui.selected=null;ids.forEach(nodeId=>store.command("REMOVE_NODE", { nodeId }));renderInspector(store.snapshot()); } });
-function projectConfig(){try{const raw=sessionStorage.getItem("workflow.projectConfig")||localStorage.getItem("workflow.projectConfig")||'{"id":"default","title":"Untitled Workflow","className":"GeneratedCombatLayerPlugin","shaderDir":"data/shaders/generated"}';if(!sessionStorage.getItem("workflow.projectConfig"))sessionStorage.setItem("workflow.projectConfig",raw);return JSON.parse(raw);}catch(_){return {id:"default",title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated"};}}
+function projectConfig(){try{const raw=sessionStorage.getItem("workflow.projectConfig")||localStorage.getItem("workflow.projectConfig")||'{"id":"default","title":"Untitled Workflow","className":"GeneratedCombatLayerPlugin","shaderDir":"data/shaders/generated","previewWidth":1024,"previewHeight":1024}';if(!sessionStorage.getItem("workflow.projectConfig"))sessionStorage.setItem("workflow.projectConfig",raw);const config=JSON.parse(raw),resolution=previewResolution(config);return {...config,previewWidth:resolution.width,previewHeight:resolution.height};}catch(_){return {id:"default",title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated",previewWidth:1024,previewHeight:1024};}}
 function loadCurrentGraph(){try { const raw=sessionStorage.getItem("workflow.graph")||localStorage.getItem("workflow.graph")||"null";if(!sessionStorage.getItem("workflow.graph")&&raw!=="null")sessionStorage.setItem("workflow.graph",raw);const graph=JSON.parse(raw); return graph?.nodes && graph?.links ? graph : starterGraph(); } catch (_) { return starterGraph(); }}
 function validateImportedWorkflow(value){
   if(!value||typeof value!=="object")throw new Error("根对象必须是 JSON 对象");
@@ -888,17 +889,17 @@ function validateImportedWorkflow(value){
     if(!compatible(fromPort.type,toPort.type))throw new Error(`连线类型不匹配：${typeLabel(fromPort.type)} 不能连接到 ${typeLabel(toPort.type)}`);
     if(isInvalidBranchConnection(graph,link))throw new Error("分支内部的输出只能连接同一分支节点，或通过变量节点带出。");
   });
-  return {schemaVersion:1,project:{id:String(value.project.id||`workflow_${Date.now()}`),title:String(value.project.title||"Imported Workflow"),className:String(value.project.className||"GeneratedCombatLayerPlugin").replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:String(value.project.shaderDir||"data/shaders/generated")},graph:clone(graph),vertexTransform:value.vertexTransform||defaultVertexTransform()};
+  return {schemaVersion:1,project:bridgeProjectConfig(value.project,{...newWorkflowConfig(),title:"Imported Workflow"}),graph:clone(graph),vertexTransform:value.vertexTransform||defaultVertexTransform()};
 }
 function importWorkflowFile(file){const status=document.querySelector("#import-status");file.text().then(text=>{const imported=validateImportedWorkflow(JSON.parse(text));openWorkflow(imported.project,imported.graph,false,imported.vertexTransform);saveWorkflow();status.textContent=`导入成功：${imported.project.title}（${imported.graph.nodes.length} 节点，${imported.graph.links.length} 连线）`;document.querySelector("#footer-message").textContent=`已导入工作流：${imported.project.title}`;}).catch(error=>{status.textContent=`导入失败：${error.message||error}`;});}
 function persistCurrentGraph(){sessionStorage.setItem("workflow.graph",JSON.stringify(store.snapshot()));}
 function defaultVertexTransform(){return {vertices:[[-180,-90],[180,-90],[-180,90],[180,90]],tx:0,ty:0,sx:1,sy:1,rotation:0};}
 function currentVertexTransform(){try{return {...defaultVertexTransform(),...JSON.parse(sessionStorage.getItem("workflow.vertexTransform")||localStorage.getItem("workflow.vertexTransform")||"null")};}catch(_){return defaultVertexTransform();}}
 function workflowLibrary(){try{return JSON.parse(localStorage.getItem("workflow.library")||"[]");}catch(_){return[];}}
-function newWorkflowConfig(){return {id:`workflow_${Date.now()}`,title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated"};}
+function newWorkflowConfig(){return {id:`workflow_${Date.now()}`,title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated",previewWidth:1024,previewHeight:1024};}
 function persistCurrentWorkflow(silent=true){const config=projectConfig(),id=String(config.id||"");if(!id)return;const library=workflowLibrary(),index=library.findIndex(item=>item.id===id);if(index<0)return;library[index]={id,config:clone(config),graph:store.snapshot(),vertexTransform:currentVertexTransform()};localStorage.setItem("workflow.library",JSON.stringify(library));sessionStorage.setItem("workflow.graph",JSON.stringify(store.snapshot()));if(!silent){renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}}
 function openWorkflow(config,graph,closeDialog=true,vertexTransform=null){persistCurrentWorkflow(true);const nextConfig=clone(config),nextGraph=clone(graph),transform=vertexTransform||defaultVertexTransform();sessionStorage.setItem("workflow.projectConfig",JSON.stringify(nextConfig));sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));store.reset(nextGraph);ui.selected=null;ui.selectedNodes.clear();if(closeDialog)document.querySelector("#workflow-dialog").close();renderWorkflowLibrary();}
-function loadMingGodExample(closeDialog=true){const config={id:`workflow_${Date.now()}`,title:"明神印记旋涡",className:"Meng_MingGodSignPlugin",shaderDir:"data/shaders/meng"};openWorkflow(config,mingGodSignGraph(),closeDialog);saveWorkflow();document.querySelector("#footer-message").textContent="已创建并保存工作流：明神印记旋涡";}
+function loadMingGodExample(closeDialog=true){const config={id:`workflow_${Date.now()}`,title:"明神印记旋涡",className:"Meng_MingGodSignPlugin",shaderDir:"data/shaders/meng",previewWidth:1024,previewHeight:1024};openWorkflow(config,mingGodSignGraph(),closeDialog);saveWorkflow();document.querySelector("#footer-message").textContent="已创建并保存工作流：明神印记旋涡";}
 function renderWorkflowLibrary(){
   const root=document.querySelector("#saved-workflows"),examples=document.querySelector("#example-workflows");if(!root)return;
   const library=workflowLibrary(),activeId=projectConfig().id;root.innerHTML=library.length?"":"<p class=\"readonly\">暂无保存的工作流。</p>";
@@ -1651,7 +1652,7 @@ document.querySelector("#import-workflow").addEventListener("click",()=>{documen
 document.querySelector("#close-import-dialog").addEventListener("click",()=>document.querySelector("#import-dialog").close());
 document.querySelector("#choose-workflow-file").addEventListener("click",()=>document.querySelector("#workflow-file-input").click());
 document.querySelector("#workflow-file-input").addEventListener("change",event=>{const file=event.target.files?.[0];if(file)importWorkflowFile(file);event.target.value="";});
-document.querySelector("#workflow-manager").addEventListener("click",()=>{const config=projectConfig();document.querySelector("#workflow-title").value=config.title;document.querySelector("#plugin-class-name").value=config.className;document.querySelector("#shader-directory").value=config.shaderDir;document.querySelector("#bridge-port").value=localStorage.getItem("workflow.bridgePort")||"4174";document.querySelector("#bridge-status").textContent="未检测";renderWorkflowLibrary();document.querySelector("#workflow-dialog").showModal();});
+document.querySelector("#workflow-manager").addEventListener("click",()=>{const config=projectConfig(),resolution=previewResolution(config);document.querySelector("#workflow-title").value=config.title;document.querySelector("#plugin-class-name").value=config.className;document.querySelector("#shader-directory").value=config.shaderDir;document.querySelector("#preview-canvas-width").value=resolution.width;document.querySelector("#preview-canvas-height").value=resolution.height;document.querySelector("#bridge-port").value=workflowBridge.port();document.querySelector("#bridge-status").textContent="正在检测本地页面桥接…";checkBridge();renderWorkflowLibrary();document.querySelector("#workflow-dialog").showModal();});
 document.querySelector("#bridge-port").addEventListener("change",event=>workflowBridge.setPort(event.target.value));
 document.querySelector("#bridge-check").addEventListener("click",checkBridge);
 const bridgePromptButton=document.querySelector("#bridge-copy-prompt");
@@ -1661,10 +1662,10 @@ bridgePromptBox.id="bridge-prompt"; bridgePromptBox.className="bridge-prompt"; b
 bridgePromptBox.setAttribute("aria-label","MCP 配置与接入提示");
 bridgePromptBox.placeholder="点击“显示 MCP 配置与接入提示”生成内容，可自行选择复制";
 bridgePromptButton.parentElement.insertAdjacentElement("afterend",bridgePromptBox);
-bridgePromptButton.addEventListener("click",()=>{bridgePromptBox.value=bridgePrompt();bridgePromptBox.focus();bridgePromptBox.select();document.querySelector("#bridge-status").textContent="提示已显示，请选择需要的段落复制。";});
+bridgePromptButton.addEventListener("click",()=>{bridgePromptBox.value=bridgePrompt();bridgePromptBox.focus();document.querySelector("#bridge-status").textContent="提示已显示；请按当前运行方式选择对应段落。";});
 document.querySelector("#close-workflow-dialog").addEventListener("click",()=>document.querySelector("#workflow-dialog").close());
-document.querySelector("#create-workflow").addEventListener("click",()=>{const config={id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value.replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:document.querySelector("#shader-directory").value||"data/shaders/generated"};openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
-document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=projectConfig();config.title=document.querySelector("#workflow-title").value||config.title;config.className=document.querySelector("#plugin-class-name").value.replace(/[^A-Za-z0-9_]/g,"")||config.className;config.shaderDir=document.querySelector("#shader-directory").value||config.shaderDir;sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));saveWorkflow();renderWorkflowLibrary();});
+document.querySelector("#create-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value});openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
+document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:projectConfig().id,title:document.querySelector("#workflow-title").value,className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value},projectConfig());sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));store.graph.previewRevision=++store.previewRevision;store.emit();saveWorkflow();renderWorkflowLibrary();});
 store.subscribe(graph => { sessionStorage.setItem("workflow.graph",JSON.stringify(graph)); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph); workflowBridge.publish(graph); });
 setInterval(() => workflowBridge.pull(), 250);
 setInterval(() => workflowBridge.publish(store.snapshot()), 2000);

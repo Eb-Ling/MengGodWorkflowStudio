@@ -10,6 +10,7 @@
 - GLSL 数学、向量、纹理、噪声、SDF、布尔、If、For、变量与顶点变换节点。
 - 自定义 GLSL 节点支持 `in`、`out`、`inout` 参数。
 - 节点离屏 GPU 预览；时间节点可仅为预览动画。
+- 每个工作流可设置 `64-4096` 的预览画布宽高；GPU 预览按该分辨率渲染，并在方形节点内保持比例。
 - 纹理入口在预览中保持比例，运行时在 Java 构造器接收 `SpriteAPI`。
 - 导出前校验工作流端口、类型、分支边界、保留 uniform、Java 标识符和可映射的 public uniform 类型。
 - 本地 MCP 桥接：Agent 可以读取和操作当前页面的未保存草稿。
@@ -47,14 +48,14 @@ npm run start
 
 ## MCP
 
-页面桥接运行后，在另一个终端启动：
+源码/浏览器版先启动页面桥接：
 
 ```powershell
 Set-Location ai-gateway
 npm run mcp
 ```
 
-为 MCP 客户端配置：
+再为 MCP 客户端配置以下 STDIO 服务，并把 `args` 中的占位路径替换为本机真实路径：
 
 ```json
 {
@@ -71,6 +72,8 @@ npm run mcp
 ```
 
 完整 JSON 工作流格式和 Agent 提示见 [docs/AI_WORKFLOW_FORMAT.md](docs/AI_WORKFLOW_FORMAT.md)。
+
+桌面 EXE 会自动启动页面桥接，默认使用 `http://127.0.0.1:4174`，端口被占用时自动选择空闲端口。打开“工作流 → 显示 MCP 配置与接入提示”可获得当前实际端口和无需 Node.js 的 Electron 配置。MCP 的 stdio 进程由 Codex、Claude Desktop 等客户端按需启动，不会作为 EXE 的常驻子进程。
 
 ## 验证
 
