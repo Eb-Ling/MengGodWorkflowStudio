@@ -17,5 +17,10 @@ Thumbs.db
 
 # Packaged application output
 dist/
+dist-*/
 out/
 release/
+
+# Icon extraction and packaging diagnostics
+assets/extracted-*.png
+TESTING_README.txt

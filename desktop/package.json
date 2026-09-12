@@ -1,6 +1,6 @@
 {
   "name": "menggod-workflow-studio",
-  "version": "1.0.3",
+  "version": "1.0.7",
   "description": "MengGod GLSL workflow editor",
   "author": "Eb-Ling",
   "private": true,
@@ -21,7 +21,7 @@
       { "from": "../AI_WORKFLOW_FORMAT.md", "to": "AI_WORKFLOW_FORMAT.md" },
       { "from": "../assets", "to": "assets" }
     ],
-    "win": { "target": ["portable", "nsis"], "artifactName": "MengGod-Workflow-Studio-${version}-${arch}.${ext}" },
+    "win": { "target": ["portable", "nsis"], "artifactName": "MengGod-Workflow-Studio-${version}-${arch}.${ext}", "signAndEditExecutable": false },
     "nsis": { "oneClick": true, "perMachine": false, "allowToChangeInstallationDirectory": false }
   },
   "devDependencies": {

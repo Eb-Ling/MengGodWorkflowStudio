@@ -2,13 +2,15 @@
 
 此目录是工作流编辑器的本地页面桥接服务。它不连接任何 AI 或第三方中转站；Codex 等 Agent 通过 MCP 读取当前页面正在编辑的内存草稿，并提交白名单图命令，由页面按现有 GraphStore 机制执行。保存仅写入编辑器的工作流库，不是 MCP 读取或编辑的前置条件。
 
+桥接采用“活动编辑器”租约：页面加载和后台同步都只发布观察状态，不能覆盖草稿、读取命令或确认操作。用户必须在目标编辑器点击画布或“工作流 → 检测桥接”明确激活租约；这样 Agent 即使错误地打开另一张编辑器页，也不会接管用户正在编辑的图。`workflow_get_current` 始终返回活动编辑器的未保存草稿，绝不会自动打开已保存工作流。
+
 ## 配置与启动
 
 PowerShell 示例：
 
 ```powershell
 $env:WORKFLOW_BRIDGE_PORT = "4174"
-Set-Location "D:\Starsector\mods\MengGod's legacy\ai-gateway"
+Set-Location "<MengGod Workflow Studio 安装目录>\ai-gateway"
 node server.mjs
 ```
 
@@ -16,13 +18,15 @@ node server.mjs
 
 页面顶部“工作流”窗口内提供桥接端口、连接检测和“显示 MCP 配置与接入提示”。提示会根据当前端口和项目路径生成：包含启动 `server.mjs` 的 PowerShell 命令、完整 `mcpServers` 配置（含 `WORKFLOW_BRIDGE_URL`）以及 Agent 操作规则，并显示在可选择的多行文本框中。浏览器不能直接启动本机 Node/EXE 进程，因此检测失败时仍需在终端运行 `node server.mjs`；未来封装 EXE 后可由相同按钮调用启动器。
 
-在 Codex 的“连接至自定义 MCP”表单中，名称填写 `workflow-shader`，类型选择“STDIO”，启动命令推荐填写 `C:\Program Files\nodejs\node.exe`，参数填写 `mcp-server.mjs` 的完整路径，环境变量添加 `WORKFLOW_BRIDGE_URL=http://127.0.0.1:4174`，工作目录填写 `D:\Starsector\mods\MengGod's legacy\ai-gateway`。页面中的提示现在直接显示在可选择文本框内，用户可以只复制需要的段落。
+在 Codex 的“连接至自定义 MCP”表单中，名称填写 `workflow-shader`，类型选择“STDIO”，并使用 EXE 内“工作流 → 显示 MCP 配置与接入提示”给出的当前真实命令、参数和 `WORKFLOW_BRIDGE_URL`。不要手写旧安装目录或假设端口恒为 4174。页面中的提示会显示为可选择文本，用户可以只复制需要的段落。
+
+服务提供 `workflow_*` 工具，以及 `workflow://active/summary` 只读资源。配置成功后，Codex、Claude Desktop 等客户端应显示 `workflow_get_status`、`workflow_get_summary`、`workflow_submit_commands` 等工具；若工具未出现，说明 MCP 尚未注册到当前会话，需要按客户端要求新建或重启会话。不要以 shell 或浏览器另开编辑器页面、手工发送 JSON-RPC 作为替代操作方式。
 
 ## MCP Server
 
 `node mcp-server.mjs` 启动 stdio MCP Server。它只读取和操作当前页面正在编辑的内存草稿，不提供文件、Shell 或外部网络工具。
 
-页面每两秒同步一次状态。每次 MCP 写操作都会先检查活动页面与可选的 `expectedRevision`，再等待页面将整批操作实际应用并确认；页面关闭、工作流被其他人修改、无效节点或端口都会得到错误，而不是“已排队”的伪成功。
+页面每两秒同步一次状态。`workflow_get_status` 永远只返回连接状态；`workflow_get_summary` 是 Agent 的常规读取入口，会去除纹理预览 Base64、生成源码和完整库数据。编辑器未连接时，MCP 不会读取或写入可能过期的内存草稿。每次 MCP 写操作都会先检查活动页面与可选的 `expectedRevision`，再等待页面将整批操作实际应用并确认；页面关闭、工作流被其他人修改、无效节点或端口都会得到错误，而不是“已排队”的伪成功。
 
 工具按页面操作分组：
 

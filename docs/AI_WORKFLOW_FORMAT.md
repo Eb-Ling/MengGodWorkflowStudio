@@ -4,7 +4,7 @@ AI 不需要直接操作编辑器，也不需要 MCP。只要根据本文档输�
 
 页面内也提供可选的 MCP 桥接设置：打开“工作流”窗口，填写桥接端口并点击“检测桥接”，随后可点击“显示 MCP 配置与接入提示”。浏览器/源码版需要用户启动桥接服务；桌面 EXE 会自动启动页面桥接，并在提示中给出当前真实端口与无需 Node.js 的 Electron 配置。stdio MCP 服务始终由 MCP 客户端按需启动。
 
-MCP 读取和编辑的是浏览器当前正在操作的草稿，不要求先保存。所有写入会等待页面实际应用后才返回，并可使用 `expectedRevision` 防止覆盖他人刚做的修改。除 `workflow_get_current`、`workflow_list_node_types` 外，Agent 可使用 `workflow_list_resources` 获取已保存工作流、自定义节点、工作流节点、选择和顶点变换；使用 `workflow_submit_commands` 编辑节点/连线/属性；使用具名的 `workflow_create`、`workflow_save`、`workflow_open`、`workflow_delete`、`workflow_import`、`workflow_set_project`、`workflow_set_vertex_transform`、`workflow_set_canvas`、`workflow_select`、`workflow_modify_selection`、`workflow_upsert_custom_node`、`workflow_expand_workflow_node` 和 `workflow_export_runtime` 覆盖页面功能。`workflow_apply_action` 只为兼容旧客户端保留。完整清单见 `ai-gateway/README.md`。
+MCP 读取和编辑的是用户明确激活的编辑器草稿，不要求先保存。页面加载和后台同步不会自动激活；用户必须在目标页面点击画布或“工作流 -> 激活当前草稿”，新开的观察页面不会覆盖它。Agent 应依次调用 `workflow_get_status`、`workflow_get_summary`，按需读取节点目录，携带 `expectedRevision` 提交修改，再读取摘要验证。正常摘要会排除纹理预览 Base64、生成源码和完整资源库；`workflow_get_current` 仅用于明确需要完整诊断时。服务同时提供 `workflow_*` 工具和 `workflow://active/summary` 只读资源。客户端未显示工具时，应重新加载 MCP 会话，而不是用 shell 手工发送 JSON-RPC。除非用户明确要求，不得调用打开、创建、导入或重置工作流的操作。完整清单见 `ai-gateway/README.md`。
 
 ## 布尔与分支
 

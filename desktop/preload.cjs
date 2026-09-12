@@ -1,9 +1,7 @@
-const { contextBridge } = require('electron');
-const path = require('node:path');
+const { contextBridge, ipcRenderer } = require('electron');
 
-const root = process.resourcesPath;
 contextBridge.exposeInMainWorld('workflowDesktop', {
   packaged: true,
-  executablePath: process.execPath,
-  mcpServerPath: path.join(root, 'ai-gateway', 'mcp-server.mjs')
+  testMcp: () => ipcRenderer.invoke('workflowDesktop:testMcp'),
+  getMcpConfig: () => ipcRenderer.invoke('workflowDesktop:getMcpConfig')
 });

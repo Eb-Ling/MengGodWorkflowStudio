@@ -8,8 +8,11 @@ const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const commandTypes = new Set(["ADD_NODE", "REMOVE_NODE", "MOVE_NODE", "CONNECT", "DISCONNECT", "SET_PROPERTY", "RENAME_NODE", "SET_OUTPUT"]);
 const actionTypes = new Set(["SAVE_WORKFLOW", "EXPORT_RUNTIME", "NEW_WORKFLOW", "RESET_CURRENT_DRAFT", "LOAD_MING_GOD_EXAMPLE", "OPEN_WORKFLOW", "DELETE_WORKFLOW", "IMPORT_WORKFLOW_DATA", "SET_PROJECT_CONFIG", "SET_VERTEX_TRANSFORM", "SET_VIEW", "SET_SELECTION", "DELETE_SELECTED", "DISCONNECT_SELECTED", "TOGGLE_SELECTED_PREVIEW", "SAVE_SELECTION_AS_WORKFLOW_NODE", "EXPAND_WORKFLOW_NODE", "DELETE_WORKFLOW_NODE", "UPSERT_CUSTOM_NODE", "DELETE_CUSTOM_NODE", "ADD_DEMO"]);
 
+const editorLeaseMs = 10_000;
 let latestState = { source: "awaiting_active_editor", graph: null, project: null, catalog: [] };
+let activeEditorId = null;
 let editorSeenAt = 0;
+const editorStates = new Map();
 let nextId = 1;
 const queue = [];
 const pending = new Map();
@@ -18,7 +21,22 @@ function json(response, status, payload) { response.writeHead(status, { "Content
 function body(request) { return new Promise((resolve, reject) => { let text = ""; request.on("data", chunk => { text += chunk; if (text.length > 4_000_000) reject(new Error("Request body is too large")); }); request.on("end", () => { try { resolve(JSON.parse(text || "{}")); } catch { reject(new Error("Invalid JSON")); } }); request.on("error", reject); }); }
 function contentType(file) { return ({ ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" })[path.extname(file).toLowerCase()] || "application/octet-stream"; }
 async function serveFrontend(request, response) { const rawPath = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname), requested = rawPath === "/" ? "index.html" : rawPath.replace(/^\/+/, ""), file = path.resolve(frontendRoot, requested); if (!file.startsWith(`${frontendRoot}${path.sep}`) && file !== frontendRoot) return json(response, 403, { error: "Invalid path" }); try { const source = await readFile(file); response.writeHead(200, { "Content-Type": contentType(file), "Cache-Control": "no-store" }); response.end(source); } catch { json(response, 404, { error: "Not found" }); } }
-function pageIsConnected() { return latestState.source === "active_editor_draft" && Date.now() - editorSeenAt < 10_000; }
+function pageIsConnected() { return !!activeEditorId && latestState.source === "active_editor_draft" && Date.now() - editorSeenAt < editorLeaseMs; }
+function editorOwnsLease(editorId) { return pageIsConnected() && editorId === activeEditorId; }
+function requireEditorId(input) { const editorId = String(input?.editorId || ""); if (!editorId) throw new Error("The editor page did not provide an editorId. Reload the workflow page."); return editorId; }
+function rememberEditor(input) {
+  const editorId = requireEditorId(input);
+  const state = { ...input, source: "active_editor_draft", editorId };
+  editorStates.set(editorId, state);
+  return { editorId, state };
+}
+function activateEditor(editorId) {
+  const state = editorStates.get(editorId);
+  if (!state) throw new Error("This editor has not published a draft yet.");
+  activeEditorId = editorId;
+  latestState = state;
+  editorSeenAt = Date.now();
+}
 function getNode(graph, id) { return graph.nodes.find(node => node.id === id); }
 function nodeDefinition(typeId) { return (latestState.catalog || []).find(definition => definition.typeId === typeId); }
 function socketPort(definition, direction, name) { return definition?.[direction === "output" ? "outputs" : "inputs"]?.find(item => item.name === name); }
@@ -58,11 +76,12 @@ function awaitPage(requestId) { return new Promise(resolve => { const timer = se
 
 http.createServer(async (request, response) => {
   if (request.method === "OPTIONS") return json(response, 204, {});
-  if (request.method === "GET" && request.url === "/health") return json(response, 200, { ok: true, mode: "page_bridge", editorConnected: pageIsConnected() });
-  if (request.method === "GET" && request.url.startsWith("/v1/state")) return json(response, 200, { ...latestState, editorConnected: pageIsConnected() });
-  if (request.method === "POST" && request.url === "/v1/state") { try { latestState = await body(request); editorSeenAt = Date.now(); return json(response, 200, { ok: true }); } catch (error) { return json(response, 400, { error: error.message }); } }
-  if (request.method === "POST" && request.url === "/v1/ack") { try { const input = await body(request), entry = pending.get(input.requestId); if (entry) { clearTimeout(entry.timer); pending.delete(input.requestId); entry.resolve(input.ok === false ? { ok: false, error: input.error || "The editor rejected the operation." } : { ok: true, revision: input.revision, result: input.result || null }); } return json(response, 200, { ok: true }); } catch (error) { return json(response, 400, { error: error.message }); } }
-  if (request.method === "GET" && request.url.startsWith("/v1/commands")) { const url = new URL(request.url, `http://127.0.0.1:${port}`), cursor = Number(url.searchParams.get("cursor") || 0); return json(response, 200, { cursor: nextId - 1, items: queue.filter(item => item.id > cursor) }); }
+  if (request.method === "GET" && request.url === "/health") return json(response, 200, { ok: true, mode: "page_bridge", editorConnected: pageIsConnected(), activeEditorId: activeEditorId || null });
+  if (request.method === "GET" && request.url.startsWith("/v1/state")) return json(response, 200, { ...latestState, editorConnected: pageIsConnected(), activeEditorId: activeEditorId || null });
+  if (request.method === "POST" && request.url === "/v1/state") { try { const input = await body(request), { editorId } = rememberEditor(input); if (editorId === activeEditorId) activateEditor(editorId); return json(response, 200, { ok: true, active: editorOwnsLease(editorId), activeEditorId }); } catch (error) { return json(response, 400, { error: error.message }); } }
+  if (request.method === "POST" && request.url === "/v1/activate") { try { const input = await body(request), editorId = requireEditorId(input); if (!editorStates.has(editorId)) rememberEditor(input); activateEditor(editorId); return json(response, 200, { ok: true, active: true, activeEditorId }); } catch (error) { return json(response, 400, { error: error.message }); } }
+  if (request.method === "POST" && request.url === "/v1/ack") { try { const input = await body(request), editorId = requireEditorId(input); if (!editorOwnsLease(editorId)) throw new Error("Only the active editor can acknowledge MCP operations."); const entry = pending.get(input.requestId); if (entry) { clearTimeout(entry.timer); pending.delete(input.requestId); entry.resolve(input.ok === false ? { ok: false, error: input.error || "The editor rejected the operation." } : { ok: true, revision: input.revision, result: input.result || null }); } return json(response, 200, { ok: true }); } catch (error) { return json(response, 400, { error: error.message }); } }
+  if (request.method === "GET" && request.url.startsWith("/v1/commands")) { const url = new URL(request.url, `http://127.0.0.1:${port}`), cursor = Number(url.searchParams.get("cursor") || 0), editorId = String(url.searchParams.get("editorId") || ""); if (!editorOwnsLease(editorId)) return json(response, 200, { cursor: nextId - 1, items: [] }); return json(response, 200, { cursor: nextId - 1, items: queue.filter(item => item.id > cursor) }); }
   if (request.method === "POST" && request.url === "/v1/commands") {
     try {
       const input = await body(request), commands = Array.isArray(input.commands) ? input.commands : (input.type && input.payload ? [input] : []), actions = Array.isArray(input.actions) ? input.actions : [];

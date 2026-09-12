@@ -73,7 +73,9 @@ npm run mcp
 
 完整 JSON 工作流格式和 Agent 提示见 [docs/AI_WORKFLOW_FORMAT.md](docs/AI_WORKFLOW_FORMAT.md)。
 
-桌面 EXE 会自动启动页面桥接，默认使用 `http://127.0.0.1:4174`，端口被占用时自动选择空闲端口。打开“工作流 → 显示 MCP 配置与接入提示”可获得当前实际端口和无需 Node.js 的 Electron 配置。MCP 的 stdio 进程由 Codex、Claude Desktop 等客户端按需启动，不会作为 EXE 的常驻子进程。
+桌面 EXE 会自动启动页面桥接，默认使用 `http://127.0.0.1:4174`，端口被占用时自动选择空闲端口。打开“工作流 → 显示 MCP 配置与接入提示”可获得当前实际端口和无需 Node.js 的 Electron 配置。MCP 的 stdio 进程由 Codex、Claude Desktop 等客户端按需启动，不会作为 EXE 的常驻子进程。桥接只操作用户明确激活的编辑器页面未保存草稿：页面加载或后台同步不会激活；在目标页面点击画布或“激活当前草稿”即可激活，其他新开页面无法覆盖该草稿。
+
+在 EXE 内点击“工作流 → 运行 MCP 自检”可验证该 EXE 能启动 stdio MCP 并返回 `workflow_*` 工具列表。自检通过不等于 Codex 已加载配置：用户仍需在 Codex 新建会话，并确认能看到 `workflow_get_status`。正常 Agent 工作顺序为 `workflow_get_status`、`workflow_get_summary`、按需读取节点目录、携带 `expectedRevision` 写入、再次读取摘要验证。常规读取不会传输纹理预览 Base64 或生成源码。
 
 ## 验证
 
