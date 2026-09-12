@@ -27,14 +27,13 @@ build/             导出回归测试
 
 ## 启动
 
-需要 Node.js 18 或更新版本。
+普通用户不需要安装或启动 Node.js。
 
-```powershell
-Set-Location ai-gateway
-npm run start
-```
+1. 从 Releases 下载 Windows x64 ZIP。
+2. 将 ZIP 完整解压到任意普通文件夹，不要只把 EXE 单独取出。
+3. 双击 `MengGod Workflow Studio.exe`。
 
-然后打开 <http://127.0.0.1:4174/>。服务只监听本机回环地址，并同时提供编辑器与页面桥接。
+桌面应用会自动启动本地编辑器和页面桥接，并自动打开工作流界面。关闭应用后，随 EXE 启动的本地服务也会一同退出。
 
 ## 导出产物
 
@@ -48,22 +47,24 @@ npm run start
 
 ## MCP
 
-源码/浏览器版先启动页面桥接：
+桌面 EXE 会自动启动页面桥接，不需要手动运行 `server.mjs`，也不需要安装 Node.js。使用步骤：
 
-```powershell
-Set-Location ai-gateway
-npm run mcp
-```
+1. 启动 `MengGod Workflow Studio.exe` 并打开需要编辑的工作流。
+2. 打开“工作流”，点击“激活当前草稿”。
+3. 点击“运行 MCP 自检”，确认 EXE 能启动内置的 stdio MCP。
+4. 点击“显示 MCP 配置与接入提示”，将页面生成的当前 EXE 路径、MCP 脚本路径和实际桥接端口填写到 Codex、Claude Desktop 等客户端。
+5. 新建或重启 Agent 会话，确认工具列表中出现 `workflow_get_status`。
 
-再为 MCP 客户端配置以下 STDIO 服务，并把 `args` 中的占位路径替换为本机真实路径：
+配置由应用根据当前安装位置动态生成，形式如下：
 
 ```json
 {
   "mcpServers": {
     "workflow-shader": {
-      "command": "node",
-      "args": ["/absolute/path/to/MengGodWorkflowStudio/ai-gateway/mcp-server.mjs"],
+      "command": "<MengGod Workflow Studio.exe 的完整路径>",
+      "args": ["<应用目录>/resources/ai-gateway/mcp-server.mjs"],
       "env": {
+        "ELECTRON_RUN_AS_NODE": "1",
         "WORKFLOW_BRIDGE_URL": "http://127.0.0.1:4174"
       }
     }
@@ -73,13 +74,24 @@ npm run mcp
 
 完整 JSON 工作流格式和 Agent 提示见 [docs/AI_WORKFLOW_FORMAT.md](docs/AI_WORKFLOW_FORMAT.md)。
 
-桌面 EXE 会自动启动页面桥接，默认使用 `http://127.0.0.1:4174`，端口被占用时自动选择空闲端口。打开“工作流 → 显示 MCP 配置与接入提示”可获得当前实际端口和无需 Node.js 的 Electron 配置。MCP 的 stdio 进程由 Codex、Claude Desktop 等客户端按需启动，不会作为 EXE 的常驻子进程。桥接只操作用户明确激活的编辑器页面未保存草稿：页面加载或后台同步不会激活；在目标页面点击画布或“激活当前草稿”即可激活，其他新开页面无法覆盖该草稿。
+默认桥接地址为 `http://127.0.0.1:4174`；端口被占用时应用会自动选择空闲端口，因此应使用页面实际生成的配置，不要照抄示例端口。MCP 的 stdio 进程由 Codex、Claude Desktop 等客户端按需启动，不会作为 EXE 的常驻子进程。桥接只操作用户明确激活的编辑器页面未保存草稿：页面加载或后台同步不会激活；在目标页面点击画布或“激活当前草稿”即可激活，其他新开页面无法覆盖该草稿。
 
 在 EXE 内点击“工作流 → 运行 MCP 自检”可验证该 EXE 能启动 stdio MCP 并返回 `workflow_*` 工具列表。自检通过不等于 Codex 已加载配置：用户仍需在 Codex 新建会话，并确认能看到 `workflow_get_status`。正常 Agent 工作顺序为 `workflow_get_status`、`workflow_get_summary`、按需读取节点目录、携带 `expectedRevision` 写入、再次读取摘要验证。常规读取不会传输纹理预览 Base64 或生成源码。
 
+## 源码开发（可选）
+
+只有修改源码、使用浏览器调试或自行构建桌面应用时才需要 Node.js 18 或更新版本。源码版页面桥接可这样启动：
+
+```powershell
+Set-Location ai-gateway
+npm run start
+```
+
+然后打开 <http://127.0.0.1:4174/>。开发者构建桌面应用可运行根目录的 `构建桌面应用.bat`。
+
 ## 验证
 
-在仓库根目录运行：
+开发者可在仓库根目录运行：
 
 ```powershell
 node --check frontend/app.js
