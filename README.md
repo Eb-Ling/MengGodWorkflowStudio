@@ -1,6 +1,6 @@
 # MengGod Workflow Studio
 
-面向《远行星号》Combat shader 的可视化 GLSL 工作流编辑器。用户通过节点图构建片段着色器和顶点变换，导出后得到可直接放入 Mod 的 Java `CombatLayeredRenderingPlugin`、顶点着色器和片段着色器。
+面向OpenGL shader 的可视化 GLSL 工作流编辑器。用户通过节点图构建片段着色器和顶点变换，导出后得到可直接迁移入 Mod 的 Java `CombatLayeredRenderingPlugin`、顶点着色器和片段着色器。
 
 导出的 Java 代码采用 MengGod 当前 BoxUtil 渲染路径：`ShaderProgram`、`BUtilGlobalData` UBO、`ShaderCore` 默认四边形、`TransformUtil` 模型矩阵和可重复调用的 GPU 资源清理。
 
