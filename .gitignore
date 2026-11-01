@@ -24,3 +24,6 @@ release/
 # Icon extraction and packaging diagnostics
 assets/extracted-*.png
 TESTING_README.txt
+
+# Reproducible test outputs
+build/verification/

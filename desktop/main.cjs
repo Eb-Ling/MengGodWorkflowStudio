@@ -74,7 +74,7 @@ function testMcpServer() {
     child.once('error',error=>finish(error));
     child.stderr.on('data',chunk=>{const text=String(chunk).trim();if(text)console.warn('MCP self-test stderr:',text);});
     child.stdout.on('data',chunk=>{buffer+=String(chunk);let newline;while((newline=buffer.indexOf('\n'))>=0){const raw=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const message=JSON.parse(raw);if(message.id===1&&message.error)throw new Error(message.error.message||'MCP initialize failed');if(message.id===1){const request={jsonrpc:'2.0',id:2,method:'tools/list',params:{}};child.stdin.write(`${JSON.stringify(request)}\n`);}if(message.id===2){tools=(message.result?.tools||[]).map(tool=>tool.name);finish(null,{bridgeUrl:`http://127.0.0.1:${bridgePort}`,stdioReady:true,toolCount:tools.length,requiredTools:['workflow_get_status','workflow_get_summary','workflow_submit_commands'],tools});}}catch(error){finish(error);}}});
-    const initialize={jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'MengGod Workflow Studio',version:'1.0.7'}}};
+    const initialize={jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'MengGod Workflow Studio',version:app.getVersion()}}};
     child.stdin.write(`${JSON.stringify(initialize)}\n`);
   });
 }

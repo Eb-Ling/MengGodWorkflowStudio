@@ -1,0 +1,7 @@
+{
+  "name": "menggod-workflow-source",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test build/compiler.test.mjs", "test:browser": "node build/browser-regression.mjs"},
+  "devDependencies": {"playwright": "1.62.1"}
+}

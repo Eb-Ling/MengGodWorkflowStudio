@@ -1,5 +1,10 @@
+import {createFragmentCompiler} from './compiler/fragment-compiler.js';
+import {normalizeTransform} from './compiler/vertex-graph.js';
+import {buildRuntimeSources} from './export/runtime-exporter.js';
+import {downloadZip} from './export/zip.js';
+const runtimeFiles=await Promise.all(['WorkflowBatch.java','WorkflowGlState.java'].map(async name=>{const response=await fetch('./runtime/'+name);if(!response.ok)throw new Error('运行时模板加载失败：'+name);return {filename:'src/data/scripts/workflow/'+name,content:await response.text()};}));
 const catalog = [
-  { typeId: "io.input", title: "输入", category: "输入输出", inputs: [], outputs: [{ name: "value", type: "FLOAT" }], properties: { uniform: "u_value", defaultValue: "0.0" } },
+  { typeId: "io.input", title: "输入", category: "输入输出", inputs: [], outputs: [{ name: "value", type: "FLOAT" }], properties: { uniform: "u_value", defaultValue: "0.0", scope:"shared" } },
   { typeId: "input.texture", title: "纹理入口", category: "输入输出", inputs: [], outputs: [{ name: "texture", type: "SAMPLER2D" }], properties: { uniform: "u_texture", textureId: "texture", previewDataUrl: "" } },
   { typeId: "input.time", title: "时间 Time", category: "输入输出", inputs: [], outputs: [{ name: "time", type: "FLOAT" }], properties: { uniform: "u_time", defaultValue: "0.0", autoAdvance: true } },
   { typeId: "io.output", title: "片段输出", category: "输入输出", inputs: [{ name: "color", type: "VEC4" }], outputs: [], properties: {} },
@@ -322,7 +327,7 @@ function applyBridgeAction(type, payload) {
   else if (type === "DELETE_WORKFLOW") { const existing=workflowLibrary().find(entry=>entry.id===payload.id);if(!existing)throw new Error(`未找到工作流：${payload.id}`);const remaining=workflowLibrary().filter(entry=>entry.id!==payload.id);localStorage.setItem("workflow.library",JSON.stringify(remaining));if(projectConfig().id===payload.id)openWorkflow(newWorkflowConfig(),starterGraph(),false);renderWorkflowLibrary(); }
   else if (type === "IMPORT_WORKFLOW_DATA") { const imported=validateImportedWorkflow(payload.workflow);openWorkflow(imported.project,imported.graph,false,imported.vertexTransform);saveWorkflow(); }
   else if (type === "SET_PROJECT_CONFIG") { const config={...projectConfig(),...bridgeProjectConfig(payload,projectConfig())};sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config)); }
-  else if (type === "SET_VERTEX_TRANSFORM") { const transform=bridgeVertexTransform(payload);sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform)); }
+  else if (type === "SET_VERTEX_TRANSFORM") { const transform=bridgeVertexTransform({...currentVertexTransform(),...payload});sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform)); }
   else if (type === "SET_VIEW") { ui.view.x=Number(payload.x)||0;ui.view.y=Number(payload.y)||0;ui.view.zoom=Math.max(.35,Math.min(1.8,Number(payload.zoom)||1));updateView(); }
   else if (type === "SET_SELECTION") { const valid=new Set(store.snapshot().nodes.map(node=>node.id));ui.selectedNodes=new Set((payload.nodeIds||[]).filter(id=>valid.has(id)));ui.selected=[...ui.selectedNodes][0]||null;renderGraph(store.snapshot());renderInspector(store.snapshot()); }
   else if (type === "DELETE_SELECTED") { const ids=[...ui.selectedNodes];ui.selectedNodes.clear();ui.selected=null;store.removeNodes(ids); }
@@ -337,8 +342,8 @@ function applyBridgeAction(type, payload) {
   workflowBridge.publish(store.snapshot());
 }
 function previewResolution(config=projectConfig()){const value=(key,fallback)=>Math.max(64,Math.min(4096,Math.round(Number(config[key])||fallback)));return {width:value("previewWidth",1024),height:value("previewHeight",1024)};}
-function bridgeProjectConfig(payload={},base=newWorkflowConfig()){const resolution=previewResolution({...base,previewWidth:payload.previewWidth??base.previewWidth,previewHeight:payload.previewHeight??base.previewHeight});return {id:String(payload.id||base.id||`workflow_${Date.now()}`),title:String(payload.title||base.title||"Untitled Workflow"),className:String(payload.className||base.className||"GeneratedCombatLayerPlugin").replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:String(payload.shaderDir||base.shaderDir||"data/shaders/generated"),previewWidth:resolution.width,previewHeight:resolution.height};}
-function bridgeVertexTransform(payload={}){const fallback=defaultVertexTransform(),vertices=Array.isArray(payload.vertices)&&payload.vertices.length===4?payload.vertices.map(pair=>[Number(pair?.[0])||0,Number(pair?.[1])||0]):fallback.vertices;return {vertices,tx:Number(payload.tx)||0,ty:Number(payload.ty)||0,sx:Number(payload.sx)||1,sy:Number(payload.sy)||1,rotation:Number(payload.rotation)||0};}
+function bridgeProjectConfig(payload={},base=newWorkflowConfig()){const resolution=previewResolution({...base,previewWidth:payload.previewWidth??base.previewWidth,previewHeight:payload.previewHeight??base.previewHeight});return {id:String(payload.id||base.id||`workflow_${Date.now()}`),title:String(payload.title||base.title||"Untitled Workflow"),className:String(payload.className||base.className||"GeneratedCombatLayerPlugin").replace(/[^A-Za-z0-9_]/g,"")||"GeneratedCombatLayerPlugin",shaderDir:String(payload.shaderDir||base.shaderDir||"data/shaders/generated"),previewWidth:resolution.width,previewHeight:resolution.height,blendMode:payload.blendMode??base.blendMode??"alpha"};}
+function bridgeVertexTransform(payload={}){return normalizeTransform(payload);}
 function bridgeCustomDefinition(value){
   if(!value||typeof value!=="object")throw new Error("definition 必须是对象");
   const title=String(value.title||"Custom Node").trim()||"Custom Node",typeId=String(value.typeId||customTypeId(title));
@@ -645,7 +650,7 @@ function renderInspector(graph) {
   if (def(node.typeId).dynamicKind) {
     const field=document.createElement("div"),isSplit=node.typeId==="vector.split",isCombine=node.typeId==="vector.combine";
     field.className="field";
-    const options=isSplit?"<option>AUTO</option><option>VEC2</option><option>VEC3</option><option>VEC4</option>":isCombine?"<option>VEC2</option><option>VEC3</option><option>VEC4</option>":"<option>AUTO</option><option>BOOL</option><option>FLOAT</option><option>VEC2</option><option>VEC3</option><option>VEC4</option>";
+    const options=isSplit?"<option>AUTO</option><option>VEC2</option><option>VEC3</option><option>VEC4</option>":isCombine?"<option>VEC2</option><option>VEC3</option><option>VEC4</option>":"<option>AUTO</option><option>BOOL</option><option>INT</option><option>UINT</option><option>FLOAT</option><option>VEC2</option><option>VEC3</option><option>VEC4</option>";
     field.innerHTML=`<label>类型变量</label><select>${options}</select><small class="type-hint">${isSplit?"连接输入向量后自动确定类型。":isCombine?"类型决定显示的 Float 输入数量。":"AUTO 会从已连接的具体端口推导；切换为具体类型会移除不兼容连线。"}</small>`;
     const select=field.querySelector("select");
     select.value=node.properties.valueType||"AUTO";
@@ -657,10 +662,11 @@ function renderInspector(graph) {
     });
     root.append(field);
   }
+  if(node.typeId==='io.input'){const field=document.createElement('div');field.className='field';field.innerHTML='<label>参数作用域</label><select aria-label="参数作用域"><option value="shared">整批共享</option><option value="instance">每个实例</option></select><small>每实例值由运行时 API 更新，可供顶点图和片段图使用。</small>';field.querySelector('select').value=node.properties.scope||'shared';field.querySelector('select').onchange=e=>store.command('SET_PROPERTY',{nodeId:node.id,key:'scope',value:e.target.value});root.append(field);}
   if(node.typeId==="logic.variable"){const inferred=variableBranchOwner(graph,node),field=document.createElement("div");field.className="field";field.innerHTML=`<label>控制流来源</label><div class="readonly">${inferred?(inferred.branch==="loop"?"FOR 循环体（由 value 输入来源自动推断）":`${inferred.branch.toUpperCase()} 分支（由 value 输入来源自动推断）`):"未连接到 If 或 For 内的节点"}</div><small class="type-hint">init 在控制块前初始化，value 的输入来源决定在哪个 If 分支或 For 循环体内写入。</small>`;root.append(field);}
   if (node.typeId === "input.texture") { const field=document.createElement("div");field.className="field texture-input-field";field.innerHTML=`<label>预览纹理</label><input type="file" accept="image/*"><small>仅用于工作流预览；导出后由构造器传入 SpriteAPI。</small>${node.properties.previewDataUrl?'<img class="texture-source-preview" alt="纹理预览">':''}`;const file=field.querySelector("input");file.addEventListener("change",event=>{const selected=event.target.files?.[0];if(!selected)return;const reader=new FileReader();reader.addEventListener("load",()=>store.command("SET_PROPERTY",{nodeId:node.id,key:"previewDataUrl",value:String(reader.result||"")}));reader.readAsDataURL(selected);});const image=field.querySelector("img");if(image)image.src=node.properties.previewDataUrl;root.append(field); }
   if (d.outputs.length) { const preview=document.createElement("div"); preview.className="field preview-toggle"; preview.innerHTML=`<label><input type="checkbox" ${node.properties.previewEnabled ? "checked" : ""}> 输出预览</label>`; preview.querySelector("input").addEventListener("change",event=>store.command("SET_PROPERTY",{nodeId:node.id,key:"previewEnabled",value:event.target.checked})); root.append(preview); }
-  Object.entries(node.properties).filter(([key])=>!['previewEnabled','valueType','previewDataUrl'].includes(key)).forEach(([key, value]) => {
+  Object.entries(node.properties).filter(([key])=>!['previewEnabled','valueType','previewDataUrl','scope'].includes(key)).forEach(([key, value]) => {
     const field=document.createElement("div");
     field.className="field";
     const valueType=typedPropertyType(node,d,key),isTypedValue=!!valueType;
@@ -929,12 +935,12 @@ function validateImportedWorkflow(value){
     if(!compatible(fromPort.type,toPort.type))throw new Error(`连线类型不匹配：${typeLabel(fromPort.type)} 不能连接到 ${typeLabel(toPort.type)}`);
     if(isInvalidBranchConnection(graph,link))throw new Error("分支内部的输出只能连接同一分支节点，或通过变量节点带出。");
   });
-  return {schemaVersion:1,project:bridgeProjectConfig(value.project,{...newWorkflowConfig(),title:"Imported Workflow"}),graph:clone(graph),vertexTransform:value.vertexTransform||defaultVertexTransform()};
+  return {schemaVersion:1,project:bridgeProjectConfig(value.project,{...newWorkflowConfig(),title:"Imported Workflow"}),graph:clone(graph),vertexTransform:normalizeTransform(value.vertexTransform||defaultVertexTransform())};
 }
 function importWorkflowFile(file){const status=document.querySelector("#import-status");file.text().then(text=>{const imported=validateImportedWorkflow(JSON.parse(text));openWorkflow(imported.project,imported.graph,false,imported.vertexTransform);saveWorkflow();status.textContent=`导入成功：${imported.project.title}（${imported.graph.nodes.length} 节点，${imported.graph.links.length} 连线）`;document.querySelector("#footer-message").textContent=`已导入工作流：${imported.project.title}`;}).catch(error=>{status.textContent=`导入失败：${error.message||error}`;});}
 function persistCurrentGraph(){sessionStorage.setItem("workflow.graph",JSON.stringify(store.snapshot()));}
 function defaultVertexTransform(){return {vertices:[[-180,-90],[180,-90],[-180,90],[180,90]],tx:0,ty:0,sx:1,sy:1,rotation:0};}
-function currentVertexTransform(){try{return {...defaultVertexTransform(),...JSON.parse(sessionStorage.getItem("workflow.vertexTransform")||localStorage.getItem("workflow.vertexTransform")||"null")};}catch(_){return defaultVertexTransform();}}
+function currentVertexTransform(){return normalizeTransform(JSON.parse(sessionStorage.getItem("workflow.vertexTransform")||"null")||defaultVertexTransform());}
 function workflowLibrary(){try{return JSON.parse(localStorage.getItem("workflow.library")||"[]");}catch(_){return[];}}
 function newWorkflowConfig(){return {id:`workflow_${Date.now()}`,title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated",previewWidth:1024,previewHeight:1024};}
 function persistCurrentWorkflow(silent=true){const config=projectConfig(),id=String(config.id||"");if(!id)return;const library=workflowLibrary(),index=library.findIndex(item=>item.id===id);if(index<0)return;library[index]={id,config:clone(config),graph:store.snapshot(),vertexTransform:currentVertexTransform()};localStorage.setItem("workflow.library",JSON.stringify(library));sessionStorage.setItem("workflow.graph",JSON.stringify(store.snapshot()));if(!silent){renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}}
@@ -942,717 +948,17 @@ function persistCurrentWorkflow(silent=true){const config=projectConfig(),id=Str
 // draft here used to overwrite a saved entry while the user was trying to load it.
 function openWorkflow(config,graph,closeDialog=true,vertexTransform=null){const nextConfig=clone(config),nextGraph=clone(graph),transform=vertexTransform||defaultVertexTransform();sessionStorage.setItem("workflow.projectConfig",JSON.stringify(nextConfig));sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));sessionStorage.setItem("workflow.graph",JSON.stringify(nextGraph));store.reset(nextGraph);ui.selected=null;ui.selectedNodes.clear();if(closeDialog)document.querySelector("#workflow-dialog").close();renderWorkflowLibrary();}
 function loadMingGodExample(closeDialog=true){const config={id:`workflow_${Date.now()}`,title:"明神印记旋涡",className:"Meng_MingGodSignPlugin",shaderDir:"data/shaders/meng",previewWidth:1024,previewHeight:1024};openWorkflow(config,mingGodSignGraph(),closeDialog);saveWorkflow();document.querySelector("#footer-message").textContent="已创建并保存工作流：明神印记旋涡";}
+async function loadInstanceExample(){try{const response=await fetch('./examples/instanced-wave.workflow.json');if(!response.ok)throw new Error('示例加载失败');const value=validateImportedWorkflow(await response.json());value.project.id='instance_'+Date.now();openWorkflow(value.project,value.graph,true,value.vertexTransform);saveWorkflow();}catch(error){document.querySelector('#footer-message').textContent=error.message;}}
 function renderWorkflowLibrary(){
   const root=document.querySelector("#saved-workflows"),examples=document.querySelector("#example-workflows");if(!root)return;
   const library=workflowLibrary(),activeId=projectConfig().id;root.innerHTML=library.length?"":"<p class=\"readonly\">暂无保存的工作流。</p>";
   library.forEach(item=>{const row=document.createElement("div");row.className=`saved-workflow${item.id===activeId?" active":""}`;row.innerHTML=`<span class="saved-workflow-title">${item.config.title}<small>${item.config.shaderDir}</small></span><button data-open="${item.id}">打开</button><button data-delete="${item.id}" class="delete-workflow">删除</button>`;row.querySelector("[data-open]").addEventListener("click",()=>openWorkflow(item.config,item.graph,true,item.vertexTransform));row.querySelector("[data-delete]").addEventListener("click",()=>{const remaining=workflowLibrary().filter(entry=>entry.id!==item.id);localStorage.setItem("workflow.library",JSON.stringify(remaining));if(item.id===projectConfig().id){const config=newWorkflowConfig();openWorkflow(config,starterGraph(),false);}renderWorkflowLibrary();});root.append(row);});
   if(examples){examples.innerHTML="";const row=document.createElement("div");row.className="saved-workflow";row.innerHTML='<span class="saved-workflow-title">明神印记旋涡<small>Meng_MingGodSignPlugin</small></span><button data-open-example>载入</button>';row.querySelector("[data-open-example]").addEventListener("click",()=>loadMingGodExample());examples.append(row);}
+  if(examples){const row=document.createElement('div');row.className='saved-workflow';row.innerHTML='<span class="saved-workflow-title">实例波动四边形<small>顶点波动 + 独立实例颜色与波幅</small></span><button id="open-instance-example">创建</button>';row.querySelector('button').onclick=loadInstanceExample;examples.append(row);}
 }
 function saveWorkflow(){const config=projectConfig(),graph=store.snapshot(),vertexTransform=currentVertexTransform(),id=config.id||`workflow_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;config.id=id;sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));sessionStorage.setItem("workflow.graph",JSON.stringify(graph));localStorage.setItem("workflow.vertexTransform",JSON.stringify(vertexTransform));const library=workflowLibrary().filter(item=>item.id!==id);library.push({id,config:clone(config),graph:clone(graph),vertexTransform:clone(vertexTransform)});localStorage.setItem("workflow.library",JSON.stringify(library));renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}
 function download(name,source){const blob=new Blob([source],{type:"text/plain;charset=utf-8"}),link=Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:name});link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
-function zeroFor(type){const key=typeKey(type);if(key==="BOOL")return"false";if(key==="INT")return"0";if(key==="UINT")return"0u";if(key==="FLOAT")return"0.0";if(/^B?VEC[234]$/.test(key))return `${typeLabel(key)}(${key.startsWith("BVEC")?"false":"0"})`;if(/^U?IVEC[234]$/.test(key))return `${typeLabel(key)}(${key.startsWith("UVEC")?"0u":"0"})`;if(/^MAT[234]$/.test(key))return `${typeLabel(key)}(0.0)`;return"0.0";}
-function constantExpression(node, type) {
-  const raw=String(node.properties.value ?? "0").trim();
-  const key=typeKey(type);if(key==="BOOL")return raw.toLowerCase()==="true"?"true":"false";
-  const values=raw.split(/[\s,]+/).filter(Boolean).map(value=>Number(value)).map(value=>Number.isFinite(value)?value:0);
-  const scalar=(values[0] ?? 0),count=Number((key.match(/[234]$/)||[])[0]||0),integer=key==="INT"||key==="UINT"||key.startsWith("IVEC")||key.startsWith("UVEC"),boolean=key.startsWith("BVEC");
-  const component=value=>boolean?(Number(value)?"true":"false"):key==="UINT"||key.startsWith("UVEC")?`${Math.max(0,Math.trunc(value))}u`:integer?`${Math.trunc(value)}`:Number(value).toFixed(4);
-  if(!count)return component(scalar);
-  const parts=Array.from({length:count},(_,index)=>(values[index] ?? (values.length===1?values[0]:0)));
-  return `${typeLabel(key)}(${parts.map(component).join(", ")})`;
-}
-function inputUniformName(node){const raw=String(node.properties.uniform||"u_value");return /^u_[A-Za-z0-9_]+$/.test(raw)?raw:"u_value";}
-function graphInputs(graph){return graph.nodes.filter(node=>node.typeId==="io.input").map(node=>{const type=nodeDef(node).outputs[0]?.type||"FLOAT";return {name:inputUniformName(node),type,defaultValue:type==="BOOL"?String(node.properties.defaultValue).toLowerCase()==="true":Number(node.properties.defaultValue??0)||0};}).filter((item,index,all)=>all.findIndex(other=>other.name===item.name)===index);}
-const JAVA_RESERVED_WORDS=new Set("abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null".split(" "));
-function javaIdentifier(value,fallback="texture"){
-  const name=String(value||fallback).replace(/[^A-Za-z0-9_]/g,"_").replace(/^[^A-Za-z_]+/,"")||fallback;
-  return JAVA_RESERVED_WORDS.has(name)?`${name}_`:name;
-}
-function validJavaClassName(name){return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)&&!JAVA_RESERVED_WORDS.has(name);}
-function graphTextureInputs(graph){const used=new Set();return graph.nodes.filter(node=>node.typeId==="input.texture").map(node=>{const base=javaIdentifier(node.properties.textureId,"texture");let parameter=base,index=2;while(used.has(parameter))parameter=`${base}${index++}`;used.add(parameter);return {name:inputUniformName(node),nodeId:node.id,textureId:String(node.properties.textureId||"texture"),parameter};}).filter((item,index,all)=>all.findIndex(other=>other.name===item.name)===index);}
-function expressionFor(graph,nodeId,socket,cache=new Map()){
- const key=`${nodeId}:${socket}`;if(cache.has(key))return cache.get(key);const node=graph.nodes.find(n=>n.id===nodeId),d=node&&nodeDef(node);if(!node||!d)return"0.0";const input=name=>{const port=d.inputs.find(p=>p.name===name),link=graph.links.find(l=>l.toNode===nodeId&&l.toSocket===name);return link?expressionFor(graph,link.fromNode,link.fromSocket,cache):zeroFor(port?.type);};let e="0.0",id=node.typeId;
- if(id==="input.uv")e="v_uv";else if(id==="input.time")e="u_time";else if(id==="io.input"||id==="input.texture")e=inputUniformName(node);else if(id==="math.constant")e=constantExpression(node,d.outputs[0]?.type||node.properties.valueType||"FLOAT");else if(id==="logic.variable")e=`wf_var_${javaIdentifier(node.id)}`;else if(id==="vector.constant3")e=`vec3(${Number(node.properties.x||0).toFixed(4)}, ${Number(node.properties.y||0).toFixed(4)}, ${Number(node.properties.z||0).toFixed(4)})`;else if(id==="io.output")e=input("color");else if(id==="texture.sample2d"){const sampler=input("texture");e=`${textureSampleName(sampler)}(${sampler}, ${input("uv")})`;}else if(id==="vector.center")e=`(${input("uv")} - vec2(0.5))`;else if(id==="vector.scale2"||id==="vector.scale3")e=`(${input("value")} * ${input("scale")})`;else if(id==="vector.distance"||id==="vector.length")e=`length(${input("value")})`;else if(id==="vector.distance2")e=`distance(${input("a")},${input("b")})`;else if(id==="vector.normalize")e=`normalize(${input("value")})`;else if(id==="vector.dot"||id==="vector.cross"||id==="vector.reflect")e=`${id.slice(7)}(${input(id==="vector.reflect"?"incident":"a")},${input(id==="vector.reflect"?"normal":"b")})`;else if(id==="vector.rotate2d")e=`rot2(${input("angle")}) * ${input("value")}`;else if(["math.add","math.subtract","math.multiply"].includes(id))e=`(${input("a")} ${id==="math.add"?"+":id==="math.subtract"?"-":"*"} ${input("b")})`;else if(id==="math.divide")e=`(${input("a")} / max(abs(${input("b")}), 0.0001))`;else if(["math.min","math.max","math.mod","math.step"].includes(id))e=`${id.slice(5)}(${input(id==="math.step"?"edge":"a")},${input(id==="math.step"?"x":id==="math.mod"?"y":"b")})`;else if(["math.abs","math.fract","math.floor","math.ceil","math.sin","math.cos","math.tan","math.asin","math.acos","math.exp","math.log","math.sqrt","math.sign"].includes(id))e=`${id.slice(5)}(${input("x")})`;else if(id==="math.atan")e=`atan(${input("y")},${input("x")})`;else if(id==="math.pow")e=`pow(${input("base")},${input("exponent")})`;else if(id==="math.smoothstep")e=`smoothstep(${input("edge0")},${input("edge1")},${input("x")})`;else if(id==="math.mix")e=`mix(${input("a")},${input("b")},${input("t")})`;else if(id==="math.radians"||id==="math.degrees")e=`${id.slice(5)}(${input(id==="math.radians"?"degrees":"radians")})`;else if(id.startsWith("logic.")){const op={"logic.equal":"==","logic.notEqual":"!=","logic.greater":">","logic.greaterEqual":">=","logic.less":"<","logic.lessEqual":"<=","logic.and":"&&","logic.or":"||"}[id];e=id==="logic.not"?`(!${input("value")})`:op?`(${input("a")} ${op} ${input("b")})`:"false";}else if(id==="noise.value")e=`valueNoise(${input("uv")})`;else if(id==="noise.fbm")e=`fbmValue(${input("uv")})`;else if(id==="noise.simplex")e=`simplexNoise(${input("uv")})`;else if(id==="noise.perlin")e=`perlinNoise(${input("uv")})`;else if(id==="noise.fbmSimplex")e=`fbmSimplex(${input("uv")})`;else if(id==="noise.worley")e=`worleyNoise(${input("uv")})`;else if(id==="noise.fbmWorley")e=`fbmWorley(${input("uv")})`;else if(id==="noise.turbulence")e=`turbulence(${input("uv")})`;else if(id==="noise.turbulize")e=`abs(${input("noise")})`;else if(id==="sdf.circle")e=`(length(${input("point")}) - ${input("radius")})`;else if(id==="sdf.box")e=`sdBox(${input("point")},${input("size")})`;else if(id==="sdf.segment")e=`segDist(${input("point")},${input("a")},${input("b")})`;else if(id==="sdf.lance")e=`sdLance(${input("point")},${input("baseX")},${input("tipX")},${input("maxR")})`;else if(id==="shape.lanceTaper")e=`lanceTaper(${input("t")})`;else if(id==="shape.xFade")e=`xFade(${input("point")},${input("baseX")},${input("tipX")})`;else if(id==="shape.fadeVertical"||id==="shape.fadeHorizontal")e=`smoothstep(${input("edge0")},${input("edge1")},${input("value")})`;else if(id==="curve.cubicBezier")e=`cubic(${input("p0")},${input("p1")},${input("p2")},${input("p3")},${input("t")})`;else if(id==="curve.quarticBezier")e=`bezier4(${input("p0")},${input("p1")},${input("p2")},${input("p3")},${input("p4")},${input("t")})`;else if(id.startsWith("custom.")){const source=String(d.properties.expression||"");e=source.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,(_,name)=>input(name));}
- if(id==="vector.split")e=`${input("value")}.${socket}`;
- if(id==="vector.combine"){const count={VEC2:2,VEC3:3,VEC4:4}[d.outputs[0]?.type]||2;e=`vec${count}(${["x","y","z","w"].slice(0,count).map(input).join(", ")})`;}
- if(id==="logic.for")e=`float(wf_loop_i_${javaIdentifier(node.id)})`;
- if(id==="vector.scale")e=`(${input("value")} * ${input("scale")})`;
- if(id==="vector.length")e=`length(${input("value")})`;
- if(id==="noise.turbulence")e=`turbulence(${input("uv")})`;
- if(id==="noise.turbulence3")e=`turbulence3(vec3(${input("x")}, ${input("y")}, ${input("z")}))`;
- cache.set(key,e);return e;
-}
-function shaderLibrary(){return `mat2 rot2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}\nfloat hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\nvec2 hash2(vec2 p){return vec2(hash(p),hash(p+19.19));}\nfloat valueNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1)),f.x),f.y);}\nfloat perlinNoise(vec2 p){vec2 i=floor(p),f=fract(p),u=f*f*f*(f*(f*6.-15.)+10.);vec2 g00=normalize(hash2(i)*2.-1.),g10=normalize(hash2(i+vec2(1.,0.))*2.-1.),g01=normalize(hash2(i+vec2(0.,1.))*2.-1.),g11=normalize(hash2(i+vec2(1.))*2.-1.);float a=dot(g00,f),b=dot(g10,f-vec2(1.,0.)),c=dot(g01,f-vec2(0.,1.)),d=dot(g11,f-vec2(1.));return mix(mix(a,b,u.x),mix(c,d,u.x),u.y)*.5+.5;}\nfloat fbmValue(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*valueNoise(p);p*=2.;a*=.5;}return v;}\nfloat simplexNoise(vec2 p){return valueNoise(p)*2.0-1.0;}\nfloat fbmSimplex(vec2 p){return fbmValue(p)*2.0-1.0;}\nfloat worleyNoise(vec2 p){vec2 i=floor(p),f=fract(p);float d=1.;for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 n=vec2(x,y),q=n+hash2(i+n)-f;d=min(d,length(q));}return d;}\nfloat fbmWorley(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*worleyNoise(p*6.);p*=2.;a*=.5;}return v;}\nfloat turbulence(vec2 p){return abs(fbmSimplex(p));}\nfloat sdBox(vec2 p,vec2 b){vec2 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,q.y),0.);}\nfloat segDist(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float h=clamp(dot(ba,ba),.0001,1e20);return length(pa-ba*clamp(dot(pa,ba)/h,0.,1.));}\nfloat lanceTaper(float t){t=clamp(t,0.,1.);return smoothstep(0.,.08,t)*(1.-smoothstep(.15,1.,t));}\nfloat sdLance(vec2 p,float baseX,float tipX,float maxR){float t=clamp((p.x-baseX)/max(tipX-baseX,.0001),0.,1.);return abs(p.y)-maxR*lanceTaper(t);}\nfloat xFade(vec2 p,float baseX,float tipX){return smoothstep(baseX-8.,baseX+8.,p.x)*smoothstep(tipX+8.,tipX-8.,p.x);}\nvec2 cubic(vec2 p0,vec2 p1,vec2 p2,vec2 p3,float t){float u=1.-t;return u*u*u*p0+3.*u*u*t*p1+3.*u*t*t*p2+t*t*t*p3;}\nfloat bezier4(vec2 p0,vec2 p1,vec2 p2,vec2 p3,vec2 p4,float t){float u=1.-t;return (u*u*u*u*p0+4.*u*u*u*t*p1+6.*u*u*t*t*p2+4.*u*t*t*t*p3+t*t*t*t*p4).y;}\n`;}
-const baseShaderLibrary = shaderLibrary;
-// This is the same 3D simplex turbulence family used by Ming God.  Keeping it here makes a
-// turbulence node preview show the spiral-coordinate structure, rather than a hash-like field.
-shaderLibrary = () => `${baseShaderLibrary()}\nvec4 previewPermute(vec4 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }\nfloat previewSimplex3(vec3 v) {\n    const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);\n    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);\n    vec3 i = floor(v + dot(v, C.yyy));\n    vec3 x0 = v - i + dot(i, C.xxx);\n    vec3 g = step(x0.yzx, x0.xyz), l = 1.0 - g;\n    vec3 i1 = min(g.xyz, l.zxy), i2 = max(g.xyz, l.zxy);\n    vec3 x1 = x0 - i1 + C.xxx, x2 = x0 - i2 + C.yyy, x3 = x0 - D.yyy;\n    i = mod(i, 289.0);\n    vec4 p = previewPermute(previewPermute(previewPermute(i.z + vec4(0.0, i1.z, i2.z, 1.0)) + i.y + vec4(0.0, i1.y, i2.y, 1.0)) + i.x + vec4(0.0, i1.x, i2.x, 1.0));\n    float n = 0.142857142857; vec3 ns = n * D.wyz - D.xzx;\n    vec4 j = p - 49.0 * floor(p * ns.z * ns.z), x_ = floor(j * ns.z), y_ = floor(j - 7.0 * x_);\n    vec4 x = x_ * ns.x + ns.yyyy, y = y_ * ns.x + ns.yyyy, h = 1.0 - abs(x) - abs(y);\n    vec4 b0 = vec4(x.xy, y.xy), b1 = vec4(x.zw, y.zw);\n    vec4 s0 = floor(b0) * 2.0 + 1.0, s1 = floor(b1) * 2.0 + 1.0, sh = -step(h, vec4(0.0));\n    vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy, a1 = b1.xzyw + s1.xzyw * sh.zzww;\n    vec3 p0 = vec3(a0.xy, h.x), p1 = vec3(a0.zw, h.y), p2 = vec3(a1.xy, h.z), p3 = vec3(a1.zw, h.w);\n    vec4 norm = 1.0 / vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3));\n    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;\n    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0); m *= m;\n    return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));\n}\nfloat turbulence3(vec3 p) {\n    float value = 0.0, amplitude = 1.0, frequency = 1.0;\n    for (int i = 0; i < 6; i++) { value += amplitude * abs(previewSimplex3(p * frequency)); amplitude *= 0.5; frequency *= 2.0; }\n    return value * 0.5;\n}\n`;
-function activeGraphNodeIds(graph) {
-  const active=new Set(),visit=nodeId=>{if(active.has(nodeId))return;active.add(nodeId);graph.links.filter(link=>link.toNode===nodeId).forEach(link=>visit(link.fromNode));const node=graph.nodes.find(item=>item.id===nodeId);if(node?.typeId==="logic.variable"){const owner=variableBranchOwner(graph,node)?.ownerId,control=owner&&graph.nodes.find(item=>item.id===owner),input=control&&graph.links.find(link=>link.toNode===control.id&&link.toSocket===(control.typeId==="logic.for"?"count":"condition"));if(input)visit(input.fromNode);}};
-  const finalNode=graphFinalNode(graph);if(finalNode)visit(finalNode.id);return active;
-}
-function extractShaderHelper(source,name) {
-  const match=new RegExp(`(?:mat2|float|vec2|vec4)\\s+${name}\\s*\\(`).exec(source);if(!match)return "";const open=source.indexOf("{",match.index);let depth=0;for(let index=open;index<source.length;index++){if(source[index]==="{")depth++;if(source[index]==="}"&&!--depth)return source.slice(match.index,index+1);}return "";
-}
-function shaderLibraryFor(graph,active=activeGraphNodeIds(graph)) {
-  const types=new Set(graph.nodes.filter(node=>active.has(node.id)).map(node=>node.typeId)),needed=new Set(),add=(...names)=>names.forEach(name=>needed.add(name));
-  if(types.has("vector.rotate2d"))add("rot2");
-  if(types.has("noise.value"))add("hash","valueNoise");
-  if(types.has("noise.fbm"))add("hash","valueNoise","fbmValue");
-  if(types.has("noise.simplex"))add("hash","valueNoise","simplexNoise");
-  if(types.has("noise.perlin"))add("hash","hash2","perlinNoise");
-  if(types.has("noise.fbmSimplex"))add("hash","valueNoise","fbmValue","fbmSimplex");
-  if(types.has("noise.worley"))add("hash","hash2","worleyNoise");
-  if(types.has("noise.fbmWorley"))add("hash","hash2","worleyNoise","fbmWorley");
-  if(types.has("noise.turbulence"))add("hash","valueNoise","fbmValue","fbmSimplex","turbulence");
-  if(types.has("noise.turbulence3"))add("previewPermute","previewSimplex3","turbulence3");
-  if(types.has("sdf.box"))add("sdBox");if(types.has("sdf.segment"))add("segDist");if(types.has("sdf.lance"))add("lanceTaper","sdLance");if(types.has("shape.lanceTaper"))add("lanceTaper");if(types.has("shape.xFade"))add("xFade");if(types.has("curve.cubicBezier"))add("cubic");if(types.has("curve.quarticBezier"))add("bezier4");
-  const source=shaderLibrary();return [...needed].map(name=>extractShaderHelper(source,name)).filter(Boolean).join("\n\n");
-}
-function mingGodSignFragmentSource(graph){const helpers=customHelpers(graph);return `#version 430
-
-in vec2 v_uv;
-out vec4 fragColor;
-
-uniform float u_time;
-uniform float u_duration;
-uniform float u_progress;
-
-vec4 permute(vec4 x) {
-    return mod(((x * 34.0) + 1.0) * x, 289.0);
-}
-
-float snoise(vec3 v) {
-    const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
-    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-
-    vec3 i = floor(v + dot(v, C.yyy));
-    vec3 x0 = v - i + dot(i, C.xxx);
-    vec3 g = step(x0.yzx, x0.xyz);
-    vec3 l = 1.0 - g;
-    vec3 i1 = min(g.xyz, l.zxy);
-    vec3 i2 = max(g.xyz, l.zxy);
-    vec3 x1 = x0 - i1 + C.xxx;
-    vec3 x2 = x0 - i2 + C.yyy;
-    vec3 x3 = x0 - D.yyy;
-
-    i = mod(i, 289.0);
-    vec4 p = permute(permute(permute(
-             i.z + vec4(0.0, i1.z, i2.z, 1.0))
-           + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-           + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-
-    float n_ = 0.142857142857;
-    vec3 ns = n_ * D.wyz - D.xzx;
-    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-    vec4 x_ = floor(j * ns.z);
-    vec4 y_ = floor(j - 7.0 * x_);
-    vec4 x = x_ * ns.x + ns.yyyy;
-    vec4 y = y_ * ns.x + ns.yyyy;
-    vec4 h = 1.0 - abs(x) - abs(y);
-    vec4 b0 = vec4(x.xy, y.xy);
-    vec4 b1 = vec4(x.zw, y.zw);
-    vec4 s0 = floor(b0) * 2.0 + 1.0;
-    vec4 s1 = floor(b1) * 2.0 + 1.0;
-    vec4 sh = -step(h, vec4(0.0));
-    vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
-    vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
-    vec3 p0 = vec3(a0.xy, h.x);
-    vec3 p1 = vec3(a0.zw, h.y);
-    vec3 p2 = vec3(a1.xy, h.z);
-    vec3 p3 = vec3(a1.zw, h.w);
-    vec4 norm = 1.0 / vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
-    p0 *= norm.x;
-    p1 *= norm.y;
-    p2 *= norm.z;
-    p3 *= norm.w;
-
-    vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
-    m = m * m;
-    return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
-}
-
-float turbulence(vec3 p) {
-    float value = 0.0;
-    float amplitude = 1.0;
-    float frequency = 1.0;
-    for (int i = 0; i < 6; i++) {
-        value += amplitude * abs(snoise(p * frequency));
-        amplitude *= 0.5;
-        frequency *= 2.0;
-    }
-    return value * 0.5;
-}
-
-${helpers}
-
-void main() {
-    vec2 center = vec2(0.5, 0.5);
-    vec2 toCenter = 2.0 * (v_uv - center);
-    float dist = length(toCenter);
-    float angle = atan(toCenter.y, toCenter.x);
-    float normalizedAngle = angle / (2.0 * 3.14159);
-    float rotationOffset = u_time * 0.1;
-    float contractionOffset = dist + u_time * 0.2;
-    float combined = normalizedAngle + pow(dist, 0.36) - rotationOffset;
-    float spiralValue = cos(combined * 3.14159 * 2.0);
-    float fogNoise = pow(turbulence(vec3(spiralValue, contractionOffset, u_time * 0.1)), 0.5);
-    float radialFadeValue = radialFade(dist);
-    float innerFadeValue = innerFade(dist, u_time);
-    vec3 color = vec3(1.0, 0.65, 0.75) * fogNoise * radialFadeValue * innerFadeValue;
-
-    fragColor = vec4(color, max(1.0 - innerFadeValue, fogNoise * radialFadeValue * 0.8));
-}
-`;}
-function customFunctionSource(definition) {
-  const parameters=customParameters(definition);
-  if(!parameters)return definition?.properties?.helperSource||"";
-  const functionName=javaIdentifier(definition.properties?.functionName||customFunctionName(definition.title),"wf_custom_node");
-  const signature=parameters.map(parameter=>`${parameter.qualifier} ${typeLabel(parameter.type)} ${parameter.name}`).join(", ");
-  return `${definition.properties?.helperSource||""}\nvoid ${functionName}(${signature}) {\n${definition.properties?.code||""}\n}`;
-}
-function customHelpers(graph,active=null){return [...new Set(graph.nodes.filter(node=>node.typeId.startsWith("custom.")&&(!active||active.has(node.id))).map(node=>customFunctionSource(nodeDef(node))).filter(Boolean))].join("\n\n");}
-function glslType(type){return typeLabel(type);}
-function compileGraphExpression(graph,finalNode,socket){
-  const refs=new Map(),statements=[],counters={},visiting=new Set(),initialized=new Set(),emittedControls=new Set(),sourceTypes=new Set(["input.uv","input.time","io.input","input.texture","logic.for"]);
-  const inputLink=(node,name)=>graph.links.find(link=>link.toNode===node.id&&link.toSocket===name);
-  const allocate=(type,prefix="")=>{
-    const glsl=glslType(type),safe=glsl.replace(/[^A-Za-z0-9_]/g,"_"),counterKey=prefix?`${prefix}:${safe}`:safe;
-    counters[counterKey]=(counters[counterKey]||0)+1;
-    return prefix?`${prefix}_${safe}_${counters[counterKey]}`:`${safe}_${counters[counterKey]}`;
-  };
-  const initialExpression=node=>{const link=inputLink(node,"init");if(link)return expressionFor(graph,link.fromNode,link.fromSocket,refs);const type=nodeDef(node).outputs[0]?.type||"FLOAT";return type==="BOOL"?(String(node.properties.initialValue).toLowerCase()==="true"?"true":"false"):constantExpression({properties:{value:node.properties.initialValue}},type);};
-  const indent=lines=>lines.map(line=>line.replace(/^    /,"        "));
-  const ensureVariable=node=>{if(initialized.has(node.id))return;const owner=variableBranchOwner(graph,node),members=owner?graph.nodes.filter(item=>item.typeId==="logic.variable"&&variableBranchOwner(graph,item)?.ownerId===owner.ownerId):[node];members.forEach(member=>{if(initialized.has(member.id))return;const init=inputLink(member,"init");if(init)visit(init.fromNode,init.fromSocket);initialized.add(member.id);const type=glslType(nodeDef(member).outputs[0]?.type);statements.push(`    ${type} wf_var_${javaIdentifier(member.id)} = ${initialExpression(member)};`);refs.set(`${member.id}:value`, `wf_var_${javaIdentifier(member.id)}`);});if(!owner||emittedControls.has(owner.ownerId))return;const control=graph.nodes.find(item=>item.id===owner.ownerId),controlInput=inputLink(control,control.typeId==="logic.for"?"count":"condition");if(controlInput)visit(controlInput.fromNode,controlInput.fromSocket);const collect=branch=>{const start=statements.length;members.filter(member=>variableBranchOwner(graph,member)?.branch===branch).forEach(member=>{const value=inputLink(member,"value");if(value)visit(value.fromNode,value.fromSocket);});const declarations=statements.splice(start);const assignments=members.filter(member=>variableBranchOwner(graph,member)?.branch===branch).map(member=>{const value=inputLink(member,"value");return `        wf_var_${javaIdentifier(member.id)} = ${value?expressionFor(graph,value.fromNode,value.fromSocket,refs):initialExpression(member)};`;});return [...indent(declarations),...assignments].join("\n");};
-    if(control.typeId==="logic.for"){const body=collect("loop"),count=controlInput?expressionFor(graph,controlInput.fromNode,controlInput.fromSocket,refs):"0.0",index=`wf_loop_i_${javaIdentifier(control.id)}`;statements.push(`    for (int ${index} = 0; ${index} < int(max(0.0, ${count})); ++${index}) {\n${body}\n    }`);}else{const yes=collect("true"),no=collect("false"),condition=controlInput?expressionFor(graph,controlInput.fromNode,controlInput.fromSocket,refs):"false";statements.push(`    if (${condition}) {\n${yes}\n    } else {\n${no}\n    }`);}emittedControls.add(owner.ownerId);};
-  const emitCustom=(node,definition)=>{
-    const parameters=customParameters(definition);if(!parameters)return false;
-    const argumentsList=[];
-    parameters.forEach(parameter=>{const link=inputLink(node,parameter.name),inputValue=link?visit(link.fromNode,link.fromSocket):zeroFor(parameter.type);if(parameter.qualifier==="in"){argumentsList.push(inputValue);return;}const local=allocate(parameter.type,"wf_custom");statements.push(`    ${glslType(parameter.type)} ${local} = ${parameter.qualifier==="inout"?inputValue:zeroFor(parameter.type)};`);argumentsList.push(local);refs.set(`${node.id}:${parameter.name}`,local);});
-    statements.push(`    ${javaIdentifier(definition.properties?.functionName||customFunctionName(definition.title),"wf_custom_node")}(${argumentsList.join(", ")});`);
-    return true;
-  };
-  const visit=(nodeId,outputSocket)=>{const key=`${nodeId}:${outputSocket}`;if(refs.has(key))return refs.get(key);if(visiting.has(key))return"0.0";const node=graph.nodes.find(item=>item.id===nodeId),definition=node&&nodeDef(node);if(!node||!definition)return"0.0";visiting.add(key);if(node.typeId==="logic.variable"){ensureVariable(node);visiting.delete(key);return refs.get(key)||`wf_var_${javaIdentifier(node.id)}`;}if(node.typeId.startsWith("custom.")&&customParameters(definition)){emitCustom(node,definition);visiting.delete(key);return refs.get(key)||zeroFor(definition.outputs.find(port=>port.name===outputSocket)?.type);}graph.links.filter(link=>link.toNode===nodeId).forEach(link=>visit(link.fromNode,link.fromSocket));const expression=expressionFor(graph,nodeId,outputSocket,refs);visiting.delete(key);if(sourceTypes.has(node.typeId)||node.typeId==="io.output"){refs.set(key,expression);return expression;}const outputType=definition.outputs.find(port=>port.name===outputSocket)?.type,name=allocate(outputType);statements.push(`    ${glslType(outputType)} ${name} = ${expression};`);refs.set(key,name);return name;};
-  return {expression:visit(finalNode.id,socket),statements};
-}
-function branchVariableCode(graph){
-  const variables=graph.nodes.filter(node=>node.typeId==="logic.variable");
-  const initial=node=>{
-    const link=graph.links.find(item=>item.toNode===node.id&&item.toSocket==="init");
-    if(link)return expressionFor(graph,link.fromNode,link.fromSocket);
-    const type=nodeDef(node).outputs[0]?.type||"FLOAT";
-    if(type==="BOOL")return String(node.properties.initialValue).toLowerCase()==="true"?"true":"false";
-    const value=Number(node.properties.initialValue);
-    return Number.isFinite(value)?value.toFixed(4):zeroFor(type);
-  };
-  const declarations=variables.map(node=>`    ${glslType(nodeDef(node).outputs[0]?.type)} wf_var_${javaIdentifier(node.id)} = ${initial(node)};`);
-  const blocks=graph.nodes.filter(node=>node.typeId==="logic.if").map(ifNode=>{
-    const conditionLink=graph.links.find(link=>link.toNode===ifNode.id&&link.toSocket==="condition");
-    const condition=conditionLink?expressionFor(graph,conditionLink.fromNode,conditionLink.fromSocket):"false";
-    const members=variables.filter(node=>variableBranchOwner(graph,node)?.ownerId===ifNode.id);
-    const assignment=branch=>members.filter(node=>variableBranchOwner(graph,node)?.branch===branch).map(node=>{
-      const link=graph.links.find(item=>item.toNode===node.id&&item.toSocket==="value");
-      return `        wf_var_${javaIdentifier(node.id)} = ${link?expressionFor(graph,link.fromNode,link.fromSocket):initial(node)};`;
-    }).join("\n");
-    return `    if (${condition}) {\n${assignment("true")}\n    } else {\n${assignment("false")}\n    }`;
-  }).concat(graph.nodes.filter(node=>node.typeId==="logic.for").map(loopNode=>{const countLink=graph.links.find(link=>link.toNode===loopNode.id&&link.toSocket==="count"),count=countLink?expressionFor(graph,countLink.fromNode,countLink.fromSocket):"0.0",index=`wf_loop_i_${javaIdentifier(loopNode.id)}`,members=variables.filter(node=>variableBranchOwner(graph,node)?.ownerId===loopNode.id),assignment=members.map(node=>{const link=graph.links.find(item=>item.toNode===node.id&&item.toSocket==="value");return `        wf_var_${javaIdentifier(node.id)} = ${link?expressionFor(graph,link.fromNode,link.fromSocket):initial(node)};`;}).join("\n");return `    for (int ${index} = 0; ${index} < int(max(0.0, ${count})); ++${index}) {\n${assignment}\n    }`; }));
-  return {declarations,blocks};
-}
-function graphFinalNode(graph){const explicit=graph.nodes.find(node=>node.id===graph.outputNodeId)||graph.nodes.find(node=>node.typeId==="io.output");if(explicit)return explicit;const outgoing=new Set(graph.links.map(link=>link.fromNode)),terminals=graph.nodes.filter(node=>nodeDef(node)?.outputs?.length&&!outgoing.has(node.id));return terminals.sort((a,b)=>b.canvasX-a.canvasX||b.canvasY-a.canvasY)[0]||graph.nodes[graph.nodes.length-1];}
-function fragmentSource(graph){const active=activeGraphNodeIds(graph),uniforms=graphInputs(graph).map(input=>`uniform ${glslType(input.type)} ${input.name};`).join("\n"),textures=graphTextureInputs(graph).filter(input=>active.has(input.nodeId)).map(input=>`uniform sampler2D ${input.name};`).join("\n"),finalNode=graphFinalNode(graph),d=finalNode&&nodeDef(finalNode),socket=finalNode?.typeId==="io.output"?"color":d?.outputs[0]?.name||"value",compiled=finalNode?compileGraphExpression(graph,finalNode,socket):{expression:"0.0",statements:[]},type=finalNode?.typeId==="io.output"?"VEC4":d?.outputs[0]?.type||"FLOAT",color=type==="VEC4"?compiled.expression:type==="SAMPLER2D"?`${textureSampleName(compiled.expression)}(${compiled.expression}, v_uv)`:type==="VEC3"?`vec4(${compiled.expression}, 1.0)`:type==="VEC2"?`vec4(${compiled.expression} * 0.5 + 0.5, 0.5, 1.0)`:type==="BOOL"?`vec4(vec3(${compiled.expression}?1.0:0.0),1.0)`:`vec4(vec3(${compiled.expression}), 1.0)`;return `#version 420\nin vec2 v_uv;\nout vec4 fragColor;\nuniform float u_time;\n${uniforms}\n${textures}\n${textureSamplingFunctions({...graph,nodes:graph.nodes.filter(node=>active.has(node.id))})}\n\n${shaderLibraryFor(graph,active)}\n${customHelpers(graph,active)}\n\nvoid main() {\n${compiled.statements.join("\n")}\n    fragColor = ${color};\n}\n`;}
-function vertexSource(transform=currentVertexTransform()){const sx=Number(transform.sx)||1,sy=Number(transform.sy)||1,tx=Number(transform.tx)||0,ty=Number(transform.ty)||0,radians=(Number(transform.rotation)||0)*Math.PI/180,c=Math.cos(radians),s=Math.sin(radians);return `#version 420
-layout(location = 0) in vec2 a_position;
-
-// BoxUtil is used only here for the game viewport-to-clip-space matrix.
-layout(std140, binding = 0) uniform BUtilGlobalData {
-    mat4 gameViewport;
-    vec4 gameScreenBorder;
-};
-
-uniform mat4 modelMatrix;
-uniform vec2 size;
-
-out vec2 v_uv;
-
-void main() {
-    v_uv = (a_position + 1.0) * 0.5;
-    vec4 resized = vec4(a_position * size * 0.5, 0.0, 1.0);
-    vec2 workflowScale = vec2(${sx.toFixed(6)}, ${sy.toFixed(6)});
-    mat2 workflowRotation = mat2(${c.toFixed(6)}, ${s.toFixed(6)}, -${s.toFixed(6)}, ${c.toFixed(6)});
-    vec2 workflowTranslation = vec2(${tx.toFixed(6)}, ${ty.toFixed(6)});
-    vec4 workflowPosition = vec4(workflowRotation * (resized.xy * workflowScale) + workflowTranslation, 0.0, 1.0);
-    gl_Position = gameViewport * vec4((modelMatrix * workflowPosition).xy, 0.0, 1.0);
-}
-`;}
-function pluginSource(config){return `package data.scripts;\n\nimport com.fs.starfarer.api.Global;\nimport com.fs.starfarer.api.combat.*;\nimport org.boxutil.manager.ShaderCore;\nimport org.boxutil.units.standard.ShaderProgram;\nimport org.boxutil.util.ShaderUtil;\nimport org.lwjgl.BufferUtils;\nimport org.lwjgl.opengl.*;\nimport org.lwjgl.util.vector.Vector2f;\nimport java.nio.FloatBuffer;\n\n/** Generated workflow renderer. Requires Starsector + BoxUtil. */\npublic final class ${config.className} extends BaseCombatLayeredRenderingPlugin {\n  private final Vector2f position=new Vector2f(); private final float[] vertices; private final CombatEngineLayers targetLayer;\n  private ShaderProgram program; private int vao,vbo; private FloatBuffer matrix; private float elapsed; private boolean expired;\n  public ${config.className}(float x0,float y0,float x1,float y1,float x2,float y2,float x3,float y3,CombatEngineLayers layer){ vertices=new float[]{x0,y0,x1,y1,x2,y2,x3,y3}; targetLayer=layer; }\n  public void setPosition(float x,float y){position.set(x,y);}\n  @Override public EnumSet<CombatEngineLayers> getActiveLayers(){return EnumSet.of(targetLayer);}\n  @Override public void init(CombatEntityAPI entity){super.init(entity);int id=ShaderUtil.createShaderVFFormPath(getClass().getName(),"${config.shaderDir}/${config.className}.vert","${config.shaderDir}/${config.className}.frag");if(id<=0){expired=true;return;}program=new ShaderProgram(id);program.location=new int[]{program.getUniformIndex("modelMatrix"),program.getUniformIndex("u_time")};program.uboLocation=new int[]{program.getUBOIndex("BUtilGlobalData",ShaderCore.getMatrixUBOBinding())};createVao();}\n  @Override public void advance(float amount){if(!Global.getCombatEngine().isPaused())elapsed+=amount;}\n  @Override public boolean isExpired(){return expired;}\n  @Override public float getRenderRadius(){return 10000f;}\n  @Override public void render(CombatEngineLayers layer,ViewportAPI viewport){if(expired||program==null)return;matrix=matrix(position.x,position.y,0f,matrix);int previous=GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);try{GL11.glEnable(GL11.GL_BLEND);GL14.glBlendFuncSeparate(GL11.GL_SRC_ALPHA,GL11.GL_ONE,GL11.GL_ONE,GL11.GL_ONE);GL30.glBindVertexArray(vao);program.active();GL20.glUniformMatrix4(program.location[0],false,matrix);GL20.glUniform1f(program.location[1],elapsed);GL11.glDrawArrays(GL11.GL_TRIANGLE_STRIP,0,4);program.close();}finally{GL20.glUseProgram(previous);GL30.glBindVertexArray(0);}}\n  @Override public void cleanup(){expired=true;if(vao>0)GL30.glDeleteVertexArrays(vao);if(vbo>0)GL15.glDeleteBuffers(vbo);if(program!=null)program.delete();}\n  private void createVao(){FloatBuffer data=BufferUtils.createFloatBuffer(16);for(int i=0;i<4;i++)data.put(vertices[i*2]).put(vertices[i*2+1]).put((i&1)==0?0f:1f).put(i<2?0f:1f);data.flip();vao=GL30.glGenVertexArrays();GL30.glBindVertexArray(vao);vbo=GL15.glGenBuffers();GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER,vbo);GL15.glBufferData(GL15.GL_ARRAY_BUFFER,data,GL15.GL_STATIC_DRAW);GL20.glVertexAttribPointer(0,2,GL11.GL_FLOAT,false,16,0);GL20.glEnableVertexAttribArray(0);GL20.glVertexAttribPointer(1,2,GL11.GL_FLOAT,false,16,8);GL20.glEnableVertexAttribArray(1);GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER,0);GL30.glBindVertexArray(0);}\n  private static FloatBuffer matrix(float x,float y,float angle,FloatBuffer out){if(out==null)out=BufferUtils.createFloatBuffer(16);float r=(float)Math.toRadians(angle),c=(float)Math.cos(r),s=(float)Math.sin(r);out.clear();out.put(c).put(s).put(0).put(0).put(-s).put(c).put(0).put(0).put(0).put(0).put(1).put(0).put(x).put(y).put(0).put(1).flip();return out;}\n}\n`;}
-/* Legacy exporter retained only as historical source while the BoxUtil exporter below overrides it.
-import com.fs.starfarer.api.combat.CombatEngineLayers;
-import com.fs.starfarer.api.combat.CombatEntityAPI;
-import com.fs.starfarer.api.combat.ViewportAPI;
-import com.fs.starfarer.api.graphics.SpriteAPI;
-import java.nio.ByteBuffer;
-import java.nio.FloatBuffer;
-import java.util.EnumSet;
-import org.apache.log4j.Logger;
-import org.lwjgl.BufferUtils;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL13;
-import org.lwjgl.opengl.GL15;
-import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
-import org.lwjgl.util.vector.Vector2f;
-
-/**
- * Generated by Workflow Shader Editor.
- *
- * <p>Runtime flow is aligned with Meng_MingGodSignPlugin: shader resources are
- * loaded directly from the mod, geometry is drawn through a VAO, and the current
- * GL attribute state is bracketed by glPushAttrib/glPopAttrib.</p>
- * <p>The vertex shader may use the BoxUtil BUtilGlobalData matrix UBO; Java does
- * not use BoxUtil runtime wrappers.</p>
- * /
-public final class ${config.className} extends BaseCombatLayeredRenderingPlugin {
-
-    private static final Logger LOG = Global.getLogger(${config.className}.class);
-
-    private static final String VERTEX_SHADER = "${config.shaderDir}/${config.className}.vert";
-    private static final String FRAGMENT_SHADER = "${config.shaderDir}/${config.className}.frag";
-
-    private final Vector2f position = new Vector2f();
-    private final CombatEngineLayers targetLayer;
-    private final float width;
-    private final float height;
-
-    private int shaderProgram;
-    private VaoData vao;
-    private int modelMatrixLocation;
-    private int timeLocation;
-    private int sizeLocation;
-${inputLocations}
-    private float angle;
-    private float elapsed;
-    private boolean expired;
-${inputFields}
-
-    /**
-     * Four explicit local-space vertices define the render bounds. The standard Meng
-     * VAO is scaled to their axis-aligned bounds; arbitrary non-rectangular geometry
-     * should use the workflow runtime mesh export added in a later mesh pass.
-     * /
-    public ${config.className}(
-            float x0, float y0,
-            float x1, float y1,
-            float x2, float y2,
-            float x3, float y3,
-            CombatEngineLayers layer${constructorSuffix}) {
-        this.targetLayer = layer;
-        float minX = Math.min(Math.min(x0, x1), Math.min(x2, x3));
-        float maxX = Math.max(Math.max(x0, x1), Math.max(x2, x3));
-        float minY = Math.min(Math.min(y0, y1), Math.min(y2, y3));
-        float maxY = Math.max(Math.max(y0, y1), Math.max(y2, y3));
-        this.width = maxX - minX;
-        this.height = maxY - minY;
-${inputAssignments}
-    }
-
-    public void setPosition(float x, float y) {
-        position.set(x, y);
-    }
-
-    public void setAngle(float degrees) {
-        angle = degrees;
-    }
-
-    @Override
-    public void init(CombatEntityAPI entity) {
-        super.init(entity);
-        try {
-            shaderProgram = createShaderProgramFromFiles(
-                    VERTEX_SHADER, FRAGMENT_SHADER, getClass().getSimpleName());
-            if (shaderProgram <= 0) {
-                throw new IllegalStateException("Shader compilation/linking failed");
-            }
-
-            int[] locations = getUniformLocations(
-                    shaderProgram, "modelMatrix", "u_time", "size");
-            modelMatrixLocation = locations[0];
-            timeLocation = locations[1];
-            sizeLocation = locations[2];
-${inputLocationAssignments}
-            vao = createUniversalRectVAO();
-        } catch (Exception ex) {
-            Global.getLogger(${config.className}.class).error("Generated workflow shader disabled", ex);
-            expired = true;
-        }
-    }
-
-    @Override
-    public EnumSet<CombatEngineLayers> getActiveLayers() {
-        return EnumSet.of(targetLayer);
-    }
-
-    @Override
-    public void advance(float amount) {
-        if (!Global.getCombatEngine().isPaused()) {
-            elapsed += amount;
-        }
-    }
-
-    @Override
-    public float getRenderRadius() {
-        return (float) Math.hypot(width * 0.5f, height * 0.5f);
-    }
-
-    @Override
-    public boolean isExpired() {
-        return expired;
-    }
-
-    @Override
-    public void render(CombatEngineLayers layer, ViewportAPI viewport) {
-        if (expired || shaderProgram <= 0 || vao == null || layer != targetLayer) {
-            return;
-        }
-
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        try {
-            GL11.glEnable(GL11.GL_BLEND);
-            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-            GL20.glUseProgram(shaderProgram);
-
-            FloatBuffer modelMatrix = buildModelMatrix(
-                    position.x, position.y, angle);
-            GL20.glUniformMatrix4(modelMatrixLocation, false, modelMatrix);
-            GL20.glUniform2f(sizeLocation, width, height);
-            GL20.glUniform1f(timeLocation, elapsed);
-${inputUploads}
-            drawVAOQuad(vao.vaoId);
-
-            GL20.glUseProgram(0);
-        } finally {
-            GL11.glPopAttrib();
-        }
-    }
-
-    @Override
-    public void cleanup() {
-        expired = true;
-        cleanupAll(shaderProgram, vao);
-        shaderProgram = 0;
-        vao = null;
-    }
-
-    // Self-contained extraction of the ShaderUtil methods used by Meng_MingGodSignPlugin.
-    private static int createShaderProgramFromFiles(String vertPath, String fragPath, String logTag) {
-        try {
-            return createShaderProgram(
-                    Global.getSettings().loadText(vertPath),
-                    Global.getSettings().loadText(fragPath), logTag);
-        } catch (Exception ex) {
-            LOG.error("[" + logTag + "] Failed to load shader resources: "
-                    + vertPath + ", " + fragPath, ex);
-            return 0;
-        }
-    }
-
-    private static int createShaderProgram(String vertexSource, String fragmentSource, String logTag) {
-        int vertex = compileShader(vertexSource, GL20.GL_VERTEX_SHADER, logTag);
-        int fragment = compileShader(fragmentSource, GL20.GL_FRAGMENT_SHADER, logTag);
-        if (vertex == 0 || fragment == 0) {
-            if (vertex != 0) GL20.glDeleteShader(vertex);
-            if (fragment != 0) GL20.glDeleteShader(fragment);
-            return 0;
-        }
-
-        int program = GL20.glCreateProgram();
-        GL20.glAttachShader(program, vertex);
-        GL20.glAttachShader(program, fragment);
-        GL20.glBindAttribLocation(program, 0, "a_position");
-        GL20.glLinkProgram(program);
-        GL20.glDeleteShader(vertex);
-        GL20.glDeleteShader(fragment);
-
-        if (GL20.glGetProgrami(program, GL20.GL_LINK_STATUS) == 0) {
-            LOG.error("[" + logTag + "] Shader program link failed: "
-                    + GL20.glGetProgramInfoLog(program, 4096));
-            GL20.glDeleteProgram(program);
-            return 0;
-        }
-        return program;
-    }
-
-    private static int compileShader(String source, int type, String logTag) {
-        int shader = GL20.glCreateShader(type);
-        GL20.glShaderSource(shader, source);
-        GL20.glCompileShader(shader);
-        if (GL20.glGetShaderi(shader, GL20.GL_COMPILE_STATUS) == 0) {
-            LOG.error("[" + logTag + "] Shader compile failed: "
-                    + GL20.glGetShaderInfoLog(shader, 4096));
-            GL20.glDeleteShader(shader);
-            return 0;
-        }
-        return shader;
-    }
-
-    private static int[] getUniformLocations(int program, String... names) {
-        int[] locations = new int[names.length];
-        for (int i = 0; i < names.length; i++) {
-            locations[i] = GL20.glGetUniformLocation(program, names[i]);
-        }
-        return locations;
-    }
-
-    private static VaoData createUniversalRectVAO() {
-        ByteBuffer vertices = ByteBuffer.allocateDirect(8);
-        vertices.put(new byte[] { -128, -128, 127, -128, -128, 127, 127, 127 });
-        vertices.flip();
-
-        int vaoId = GL30.glGenVertexArrays();
-        GL30.glBindVertexArray(vaoId);
-        int vboId = GL15.glGenBuffers();
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vboId);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
-        GL20.glVertexAttribPointer(0, 2, GL11.GL_BYTE, true, 2, 0);
-        GL20.glEnableVertexAttribArray(0);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
-        GL30.glBindVertexArray(0);
-        return new VaoData(vaoId, vboId);
-    }
-
-    private static FloatBuffer buildModelMatrix(float x, float y, float angleDeg) {
-        float radians = (float) Math.toRadians(angleDeg);
-        float sine = (float) Math.sin(radians);
-        float cosine = (float) Math.cos(radians);
-        FloatBuffer matrix = BufferUtils.createFloatBuffer(16);
-        matrix.put(cosine).put(sine).put(0f).put(0f);
-        matrix.put(-sine).put(cosine).put(0f).put(0f);
-        matrix.put(0f).put(0f).put(1f).put(0f);
-        matrix.put(x).put(y).put(0f).put(1f);
-        matrix.flip();
-        return matrix;
-    }
-
-    private static void drawVAOQuad(int vaoId) {
-        GL30.glBindVertexArray(vaoId);
-        GL11.glDrawArrays(GL11.GL_TRIANGLE_STRIP, 0, 4);
-        GL30.glBindVertexArray(0);
-    }
-
-    private static void cleanupAll(int program, VaoData vao) {
-        if (program != 0) GL20.glDeleteProgram(program);
-        if (vao != null) {
-            if (vao.vaoId != 0) GL30.glDeleteVertexArrays(vao.vaoId);
-            if (vao.vboId != 0) GL15.glDeleteBuffers(vao.vboId);
-        }
-    }
-
-    private static final class VaoData {
-        private final int vaoId;
-        private final int vboId;
-
-        private VaoData(int vaoId, int vboId) {
-            this.vaoId = vaoId;
-            this.vboId = vboId;
-        }
-    }
-}
-`;};
-*/
-// BoxUtil-native runtime template. This intentionally replaces the legacy self-contained
-// exporter above: generated plugins must use the same ShaderProgram/UBO/default-quad path as
-// the current MingGod renderers, rather than embedding a second shader utility implementation.
-pluginSource = (config, graph = null) => {
-  const inputs=graphInputs(graph || {nodes:[]}),textures=graphTextureInputs(graph || {nodes:[]});
-  const key=input=>typeKey(input.type);
-  const javaType=input=>({BOOL:"boolean",INT:"int",UINT:"int",FLOAT:"float",VEC2:"Vector2f",VEC3:"Vector3f",VEC4:"Vector4f"})[key(input)] || "float";
-  const fields=[...inputs.map(input=>`    private final ${javaType(input)} ${input.name};`),...textures.map(input=>`    private final SpriteAPI ${input.parameter};`)].join("\n");
-  const parameters=[...inputs.map(input=>`            ${javaType(input)} ${input.name}`),...textures.map(input=>`            SpriteAPI ${input.parameter}`)].join(",\n");
-  const assignments=[...inputs.map(input=>`        this.${input.name} = ${input.name};`),...textures.map(input=>`        this.${input.parameter} = ${input.parameter};`)].join("\n");
-  const locationFields=[...inputs.map(input=>`    private int ${input.name}Location;`),...textures.map(input=>`    private int ${input.name}Location;\n    private int ${textureAspectUniformName(input.name)}Location;`)].join("\n");
-  const locationSetup=[...inputs.map(input=>`        ${input.name}Location = shaderProgram.getUniformIndex("${input.name}");`),...textures.map(input=>`        ${input.name}Location = shaderProgram.getUniformIndex("${input.name}");\n        ${textureAspectUniformName(input.name)}Location = shaderProgram.getUniformIndex("${textureAspectUniformName(input.name)}");`)].join("\n");
-  const inputUploads=inputs.map(input=>{const type=key(input),guard=`${input.name}Location >= 0`;if(type==="BOOL")return `        if (${guard}) GL20.glUniform1i(${input.name}Location, ${input.name} ? 1 : 0);`;if(type==="INT")return `        if (${guard}) GL20.glUniform1i(${input.name}Location, ${input.name});`;if(type==="UINT")return `        if (${guard}) GL30.glUniform1ui(${input.name}Location, ${input.name});`;if(type==="VEC2")return `        if (${guard} && ${input.name} != null) GL20.glUniform2f(${input.name}Location, ${input.name}.x, ${input.name}.y);`;if(type==="VEC3")return `        if (${guard} && ${input.name} != null) GL20.glUniform3f(${input.name}Location, ${input.name}.x, ${input.name}.y, ${input.name}.z);`;if(type==="VEC4")return `        if (${guard} && ${input.name} != null) GL20.glUniform4f(${input.name}Location, ${input.name}.x, ${input.name}.y, ${input.name}.z, ${input.name}.w);`;return `        if (${guard}) GL20.glUniform1f(${input.name}Location, ${input.name});`;}).join("\n");
-  const textureUploads=textures.map((input,index)=>`        if (${input.parameter} != null && ${input.name}Location >= 0) {
-            GL13.glActiveTexture(GL13.GL_TEXTURE0 + ${index});
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, ${input.parameter}.getTextureId());
-            GL20.glUniform1i(${input.name}Location, ${index});
-            if (${textureAspectUniformName(input.name)}Location >= 0) {
-                GL20.glUniform2f(${textureAspectUniformName(input.name)}Location, ${input.parameter}.getWidth(), ${input.parameter}.getHeight());
-            }
-        }`).join("\n");
-  const textureCleanup=textures.length?`        for (int textureUnit = 0; textureUnit < ${textures.length}; textureUnit++) {
-            GL13.glActiveTexture(GL13.GL_TEXTURE0 + textureUnit);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
-        }
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);`:"";
-  const suffix=parameters?`,\n${parameters}`:"";
-  return `package data.scripts;
-
-import com.fs.starfarer.api.Global;
-import com.fs.starfarer.api.combat.*;
-import com.fs.starfarer.api.graphics.SpriteAPI;
-import java.util.EnumSet;
-import org.boxutil.base.BaseTemporaryCleanupPlugin;
-import org.boxutil.base.api.SimpleVAOAPI;
-import org.boxutil.manager.CombatRenderingManager;
-import org.boxutil.manager.ShaderCore;
-import org.boxutil.units.standard.ShaderProgram;
-import org.boxutil.util.CommonUtil;
-import org.boxutil.util.ShaderUtil;
-import org.boxutil.util.TransformUtil;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL13;
-import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
-import org.lwjgl.util.vector.Matrix4f;
-import org.lwjgl.util.vector.Vector2f;
-import org.lwjgl.util.vector.Vector3f;
-import org.lwjgl.util.vector.Vector4f;
-
-/** Generated BoxUtil shader renderer. */
-public final class ${config.className} implements CombatLayeredRenderingPlugin {
-
-    private static final String VERTEX_SHADER = "${config.shaderDir}/${config.className}.vert";
-    private static final String FRAGMENT_SHADER = "${config.shaderDir}/${config.className}.frag";
-
-    private final CombatEngineLayers targetLayer;
-    private final Vector2f position = new Vector2f();
-    private final Vector2f renderPosition = new Vector2f();
-    private final Matrix4f modelMatrix = new Matrix4f();
-    private final float width;
-    private final float height;
-    private final float localCenterX;
-    private final float localCenterY;
-${fields}
-
-    private ShaderProgram shaderProgram;
-    private int modelMatrixLocation;
-    private int sizeLocation;
-    private int timeLocation;
-${locationFields}
-    private float angle;
-    private float elapsed;
-    private boolean expired;
-    private boolean gpuResourcesReleased;
-
-    /**
-     * Vertex order is left-bottom, right-bottom, left-top, right-top. It must describe an
-     * axis-aligned rectangle because BoxUtil's shared quad is scaled by its bounding extent.
-     */
-    public ${config.className}(
-            float x0, float y0, float x1, float y1,
-            float x2, float y2, float x3, float y3,
-            CombatEngineLayers layer${suffix}) {
-        targetLayer = layer;
-        float minX = Math.min(Math.min(x0, x1), Math.min(x2, x3));
-        float maxX = Math.max(Math.max(x0, x1), Math.max(x2, x3));
-        float minY = Math.min(Math.min(y0, y1), Math.min(y2, y3));
-        float maxY = Math.max(Math.max(y0, y1), Math.max(y2, y3));
-        width = maxX - minX;
-        height = maxY - minY;
-        localCenterX = (minX + maxX) * 0.5f;
-        localCenterY = (minY + maxY) * 0.5f;
-${assignments}
-    }
-
-    public void setPosition(float x, float y) { position.set(x, y); }
-    public void setAngle(float degrees) { angle = degrees; }
-    public void markExpired() { expired = true; }
-
-    @Override
-    public void init(CombatEntityAPI entity) {
-        createShaderProgram();
-        if (shaderProgram != null) {
-            CombatRenderingManager.addCleanupPlugin(new RendererCleanupPlugin(this));
-        }
-    }
-
-    private void createShaderProgram() {
-        int programId = ShaderUtil.createShaderVFFormPath(
-                ${config.className}.class.getName(), VERTEX_SHADER, FRAGMENT_SHADER);
-        if (programId <= 0) {
-            expired = true;
-            return;
-        }
-        shaderProgram = new ShaderProgram(programId);
-        shaderProgram.location = new int[] {
-                shaderProgram.getUniformIndex("modelMatrix"),
-                shaderProgram.getUniformIndex("size"),
-                shaderProgram.getUniformIndex("u_time")
-        };
-        shaderProgram.uboLocation = new int[] {
-                shaderProgram.getUBOIndex("BUtilGlobalData", ShaderCore.getMatrixUBOBinding())
-        };
-        modelMatrixLocation = shaderProgram.location[0];
-        sizeLocation = shaderProgram.location[1];
-        timeLocation = shaderProgram.location[2];
-${locationSetup}
-    }
-
-    @Override
-    public void advance(float amount) {
-        if (!Global.getCombatEngine().isPaused()) elapsed += amount;
-    }
-
-    @Override public boolean isExpired() { return expired; }
-    @Override public EnumSet<CombatEngineLayers> getActiveLayers() { return EnumSet.of(targetLayer); }
-    @Override
-    public float getRenderRadius() {
-        // position is the caller's local-space origin, not necessarily the quad center.
-        return (float) Math.hypot(
-                Math.abs(localCenterX) + width * 0.5f,
-                Math.abs(localCenterY) + height * 0.5f);
-    }
-
-    @Override
-    public void render(CombatEngineLayers layer, ViewportAPI viewport) {
-        if (expired || layer != targetLayer || shaderProgram == null || width <= 0f || height <= 0f) return;
-        SimpleVAOAPI quad = ShaderCore.getDefaultQuadObject();
-        if (quad == null || !quad.isValid()) return;
-
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        try {
-            GL11.glEnable(GL11.GL_BLEND);
-            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-            shaderProgram.active();
-            renderPosition.set(position.x + localCenterX, position.y + localCenterY);
-            TransformUtil.createModelMatrixVanilla(renderPosition, angle, modelMatrix);
-            GL20.glUniformMatrix4(modelMatrixLocation, false, CommonUtil.createFloatBuffer(modelMatrix));
-            GL20.glUniform2f(sizeLocation, width, height);
-            GL20.glUniform1f(timeLocation, elapsed);
-${inputUploads}
-${textureUploads}
-            quad.glBind();
-            try {
-                quad.glDraw();
-            } finally {
-                quad.glReleaseBind();
-            }
-        } finally {
-${textureCleanup}
-            if (shaderProgram != null) shaderProgram.close();
-            GL11.glPopAttrib();
-        }
-    }
-
-    @Override public void cleanup() { expired = true; releaseGpuResources(); }
-
-    private synchronized void releaseGpuResources() {
-        if (gpuResourcesReleased) return;
-        gpuResourcesReleased = true;
-        if (shaderProgram != null) {
-            shaderProgram.delete();
-            shaderProgram = null;
-        }
-    }
-
-    private static final class RendererCleanupPlugin extends BaseTemporaryCleanupPlugin {
-        private final ${config.className} renderer;
-        private RendererCleanupPlugin(${config.className} renderer) { this.renderer = renderer; }
-        @Override public void cleanupCombatOnce() { renderer.releaseGpuResources(); }
-    }
-}
-`;
-};
+const {zeroFor,constantExpression,inputUniformName,graphInputs,javaIdentifier,validJavaClassName,graphTextureInputs,expressionFor,shaderLibrary,activeGraphNodeIds,extractShaderHelper,shaderLibraryFor,customFunctionSource,customHelpers,glslType,compileGraphExpression,branchVariableCode,graphFinalNode,fragmentSource} = createFragmentCompiler({nodeDef,typeKey,typeLabel,variableBranchOwner,customParameters,customFunctionName,textureSampleName,textureAspectUniformName,textureSamplingFunctions});
 function hasConnectedFragmentOutput(graph) { return graph.nodes.some(node=>node.typeId==="io.output"&&graph.links.some(link=>link.toNode===node.id&&link.toSocket==="color"&&graph.nodes.some(source=>source.id===link.fromNode))); }
 function exportReadiness(graph, config=projectConfig()) {
   if(!hasConnectedFragmentOutput(graph)) return {ready:false, message:"未连接片段输出：请将结果连接到“片段输出”的 color 输入端口。"};
@@ -1660,6 +966,7 @@ function exportReadiness(graph, config=projectConfig()) {
     if(!validJavaClassName(config.className)) throw new Error(`Java 类名无效：${config.className}。请使用非关键字的字母、数字或下划线名称，且不能以数字开头。`);
     validateGraphProperties(graph);
     validateRuntimeInputs(graph);
+    runtimeSources(graph,config);
     return {ready:true, message:"片段输出已连接，参数校验通过，可导出运行文件。"};
   } catch(error) {
     return {ready:false, message:`导出前校验失败：${error.message||error}`};
@@ -1677,25 +984,27 @@ function validateRuntimeInputs(graph){
   const supported=new Set(["BOOL","INT","UINT","FLOAT","VEC2","VEC3","VEC4"]),inputs=graphInputs(graph),textures=graphTextureInputs(graph),unsupported=inputs.filter(input=>!supported.has(typeKey(input.type)));
   if(unsupported.length)throw new Error(`当前 Java Plugin 的公共 uniform 参数不支持：${unsupported.map(input=>`${input.name}: ${typeLabel(input.type)}`).join("，")}。请改用 bool/int/uint/float/vec2/vec3/vec4，或先在工作流内部转换。`);
   const declarations=[];
-  graph.nodes.filter(node=>node.typeId==="io.input").forEach(node=>declarations.push({name:inputUniformName(node),type:typeKey(nodeDef(node)?.outputs[0]?.type),source:node.title||node.id}));
+  graph.nodes.filter(node=>node.typeId==="io.input").forEach(node=>declarations.push({name:inputUniformName(node),type:typeKey(nodeDef(node)?.outputs[0]?.type),source:node.title||node.id,scope:node.properties.scope||"shared"}));
   graph.nodes.filter(node=>node.typeId==="input.texture").forEach(node=>{
     const name=inputUniformName(node);declarations.push({name,type:"SAMPLER2D",source:node.title||node.id});declarations.push({name:textureAspectUniformName(name),type:"VEC2",source:`${node.title||node.id} 的纹理尺寸`});
   });
-  const reserved=new Set(["u_time"]),byName=new Map();
+  const reserved=new Set(["u_time","u_viewportAlpha","u_instanceOffset"]),byName=new Map();
   declarations.forEach(declaration=>{
     if(reserved.has(declaration.name))throw new Error(`uniform 名称 ${declaration.name} 由运行时保留，用于时间推进，不能作为自定义输入。`);
-    const existing=byName.get(declaration.name);if(existing&&existing.type!==declaration.type)throw new Error(`uniform 名称冲突：${declaration.name} 同时声明为 ${typeLabel(existing.type)} 和 ${typeLabel(declaration.type)}。`);
+    const existing=byName.get(declaration.name);if(existing&&(existing.type!==declaration.type||existing.scope!==declaration.scope))throw new Error(`uniform 名称冲突：${declaration.name} 同时声明为 ${typeLabel(existing.type)} 和 ${typeLabel(declaration.type)}。`);
     byName.set(declaration.name,declaration);
   });
 }
-function exportRuntime(strict=false){const config=projectConfig(),graph=store.snapshot(),readiness=renderCompileStatus(graph);if(!readiness.ready){const message=`导出失败：${readiness.message}`;document.querySelector("#footer-message").textContent=message;if(strict)throw new Error(message);return null;}saveWorkflow();lastGeneratedSources={java:{filename:`${config.className}.java`,content:pluginSource(config,graph)},vertex:{filename:`${config.className}.vert`,content:vertexSource()},fragment:{filename:`${config.className}.frag`,content:fragmentSource(graph)}};Object.values(lastGeneratedSources).forEach(file=>download(file.filename,file.content));workflowBridge.publish(graph);document.querySelector("#footer-message").textContent="已导出 Java + 顶点着色器 + 片段着色器";return lastGeneratedSources;}
+function runtimeSources(graph=store.snapshot(),config=projectConfig()){return buildRuntimeSources({config,graph,transform:currentVertexTransform(),inputs:graphInputs(graph),textures:graphTextureInputs(graph),fragment:fragmentSource(graph),runtimeFiles});}
+function exportRuntime(strict=false){const graph=store.snapshot(),readiness=renderCompileStatus(graph);if(!readiness.ready){if(strict===true)throw new Error(readiness.message);return null;}saveWorkflow();lastGeneratedSources=runtimeSources(graph);downloadZip(projectConfig().className+'.zip',Object.values(lastGeneratedSources));workflowBridge.publish(graph);document.querySelector('#footer-message').textContent='已导出实例化运行时 ZIP';return lastGeneratedSources;}
+
 document.querySelector("#node-search").addEventListener("input", e => renderCatalog(e.target.value)); document.querySelector("#new-graph").addEventListener("click", () => { ui.selected = null; store.reset(); });
 document.querySelector("#add-demo").addEventListener("click", addDemo);document.querySelector("#save-workflow").addEventListener("click",saveWorkflow);document.querySelector("#export-runtime").addEventListener("click",exportRuntime);
 document.querySelector("#import-workflow").addEventListener("click",()=>{document.querySelector("#import-status").textContent="尚未选择文件。";document.querySelector("#import-dialog").showModal();});
 document.querySelector("#close-import-dialog").addEventListener("click",()=>document.querySelector("#import-dialog").close());
 document.querySelector("#choose-workflow-file").addEventListener("click",()=>document.querySelector("#workflow-file-input").click());
 document.querySelector("#workflow-file-input").addEventListener("change",event=>{const file=event.target.files?.[0];if(file)importWorkflowFile(file);event.target.value="";});
-document.querySelector("#workflow-manager").addEventListener("click",()=>{const config=projectConfig(),resolution=previewResolution(config);document.querySelector("#workflow-title").value=config.title;document.querySelector("#plugin-class-name").value=config.className;document.querySelector("#shader-directory").value=config.shaderDir;document.querySelector("#preview-canvas-width").value=resolution.width;document.querySelector("#preview-canvas-height").value=resolution.height;document.querySelector("#bridge-port").value=workflowBridge.port();document.querySelector("#bridge-status").textContent="未检测；点击“检测桥接”后再配置 MCP。";renderWorkflowLibrary();document.querySelector("#workflow-dialog").showModal();});
+document.querySelector("#workflow-manager").addEventListener("click",()=>{const config=projectConfig(),resolution=previewResolution(config);document.querySelector("#workflow-title").value=config.title;document.querySelector("#plugin-class-name").value=config.className;document.querySelector("#shader-directory").value=config.shaderDir;document.querySelector("#blend-mode").value=config.blendMode||"alpha";document.querySelector("#preview-canvas-width").value=resolution.width;document.querySelector("#preview-canvas-height").value=resolution.height;document.querySelector("#bridge-port").value=workflowBridge.port();document.querySelector("#bridge-status").textContent="未检测；点击“检测桥接”后再配置 MCP。";renderWorkflowLibrary();document.querySelector("#workflow-dialog").showModal();});
 document.querySelector("#bridge-port").addEventListener("change",event=>workflowBridge.setPort(event.target.value));
 document.querySelector("#bridge-check").addEventListener("click",checkBridge);
 document.querySelector("#bridge-self-test").addEventListener("click",selfTestMcp);
@@ -1709,8 +1018,8 @@ bridgePromptBox.placeholder="点击“显示 MCP 配置与接入提示”生成�
 bridgePromptButton.parentElement.insertAdjacentElement("afterend",bridgePromptBox);
 bridgePromptButton.addEventListener("click",async()=>{bridgePromptBox.value=await bridgePrompt();bridgePromptBox.focus();document.querySelector("#bridge-status").textContent="提示已显示；请按当前运行方式选择对应段落。";});
 document.querySelector("#close-workflow-dialog").addEventListener("click",()=>document.querySelector("#workflow-dialog").close());
-document.querySelector("#create-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value});openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
-document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:projectConfig().id,title:document.querySelector("#workflow-title").value,className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value},projectConfig());sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));store.graph.previewRevision=++store.previewRevision;store.emit();saveWorkflow();renderWorkflowLibrary();});
+document.querySelector("#create-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,blendMode:document.querySelector("#blend-mode").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value});openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
+document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:projectConfig().id,title:document.querySelector("#workflow-title").value,className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,blendMode:document.querySelector("#blend-mode").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value},projectConfig());sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));store.graph.previewRevision=++store.previewRevision;store.emit();saveWorkflow();renderWorkflowLibrary();});
 store.subscribe(graph => { sessionStorage.setItem("workflow.graph",JSON.stringify(graph)); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph); workflowBridge.publish(graph); });
 setInterval(() => workflowBridge.pull(), 250);
 setInterval(() => workflowBridge.publish(store.snapshot()), 2000);

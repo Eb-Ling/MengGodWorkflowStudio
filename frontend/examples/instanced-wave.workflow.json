@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "id": "instanced-wave-example",
+    "title": "实例波动四边形",
+    "className": "InstancedWave",
+    "shaderDir": "data/shaders/workflow",
+    "blendMode": "alpha"
+  },
+  "graph": {
+    "schemaVersion": 1,
+    "revision": 0,
+    "outputNodeId": "out",
+    "nodes": [
+      {
+        "id": "color",
+        "typeId": "io.input",
+        "title": "实例颜色",
+        "canvasX": 50,
+        "canvasY": 50,
+        "properties": {
+          "uniform": "u_color",
+          "scope": "instance",
+          "valueType": "VEC4",
+          "defaultValue": "1,0.3,0.1,1"
+        }
+      },
+      {
+        "id": "amplitude",
+        "typeId": "io.input",
+        "title": "实例波幅",
+        "canvasX": 50,
+        "canvasY": 300,
+        "properties": {
+          "uniform": "u_amplitude",
+          "scope": "instance",
+          "valueType": "FLOAT",
+          "defaultValue": "20"
+        }
+      },
+      {
+        "id": "out",
+        "typeId": "io.output",
+        "title": "片段输出",
+        "canvasX": 400,
+        "canvasY": 50,
+        "properties": {}
+      }
+    ],
+    "links": [
+      {
+        "fromNode": "color",
+        "fromSocket": "value",
+        "toNode": "out",
+        "toSocket": "color"
+      }
+    ]
+  },
+  "vertexTransform": {
+    "vertices": [
+      [
+        -100,
+        -60
+      ],
+      [
+        100,
+        -60
+      ],
+      [
+        -100,
+        60
+      ],
+      [
+        100,
+        60
+      ]
+    ],
+    "tx": 0,
+    "ty": 0,
+    "sx": 1,
+    "sy": 1,
+    "rotation": 0,
+    "graph": {
+      "output": "output",
+      "nodes": [
+        {
+          "id": "position",
+          "op": "position",
+          "x": 20,
+          "y": 20
+        },
+        {
+          "id": "uv",
+          "op": "uv",
+          "x": 20,
+          "y": 600
+        },
+        {
+          "id": "time",
+          "op": "time",
+          "x": 20,
+          "y": 200
+        },
+        {
+          "id": "x",
+          "op": "x",
+          "x": 260,
+          "y": 20,
+          "inputs": {
+            "value": "position"
+          }
+        },
+        {
+          "id": "frequency",
+          "op": "constant",
+          "x": 20,
+          "y": 400,
+          "value": 0.02
+        },
+        {
+          "id": "phase",
+          "op": "multiply",
+          "x": 500,
+          "y": 20,
+          "inputs": {
+            "a": "x",
+            "b": "frequency"
+          }
+        },
+        {
+          "id": "moving",
+          "op": "sum",
+          "x": 500,
+          "y": 230,
+          "inputs": {
+            "a": "phase",
+            "b": "time"
+          }
+        },
+        {
+          "id": "sine",
+          "op": "sin",
+          "x": 740,
+          "y": 20,
+          "inputs": {
+            "value": "moving"
+          }
+        },
+        {
+          "id": "amplitude",
+          "op": "parameter",
+          "x": 740,
+          "y": 230,
+          "parameter": "u_amplitude"
+        },
+        {
+          "id": "wave",
+          "op": "multiply",
+          "x": 980,
+          "y": 20,
+          "inputs": {
+            "a": "sine",
+            "b": "amplitude"
+          }
+        },
+        {
+          "id": "zero",
+          "op": "constant",
+          "x": 740,
+          "y": 420,
+          "value": 0
+        },
+        {
+          "id": "offset",
+          "op": "vec2",
+          "x": 980,
+          "y": 230,
+          "inputs": {
+            "x": "zero",
+            "y": "wave"
+          }
+        },
+        {
+          "id": "deformed",
+          "op": "add",
+          "x": 1220,
+          "y": 20,
+          "inputs": {
+            "a": "position",
+            "b": "offset"
+          }
+        },
+        {
+          "id": "output",
+          "op": "output",
+          "x": 1220,
+          "y": 420,
+          "inputs": {
+            "position": "deformed",
+            "uv": "uv"
+          }
+        }
+      ]
+    }
+  }
+}

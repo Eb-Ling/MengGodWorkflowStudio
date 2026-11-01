@@ -1,19 +1,7 @@
-# Workflow Shader Engine
+# Java graph 兼容原型
 
-`data.workflowshader` is a graph-to-GLSL 4.20 fragment-shader engine for Starsector combat effects.
+浏览器编译与导出是主实现，见仓库根 README。此目录保留 graph、nodes、compiler、contract、application 和 preview 接口，支持既有 Java 图调用。
 
-It intentionally uses the same modern path as this mod's BoxUtil effects:
+runtime/WorkflowShaderPlugin 现在是 data.scripts.workflow.WorkflowBatch 的适配器；资源创建、实例 SSBO、状态恢复、清理由 frontend/runtime/ 的同一份实现负责。编译本目录时必须同时编译 frontend/runtime/*.java。
 
-- `BUtilGlobalData` / `gameViewport` UBO for combat-world projection;
-- a VAO/VBO quad, a `modelMatrix` uniform, and no matrix stack or immediate-mode calls;
-- `ShaderCore.getMatrixUBOBinding()` to use BoxUtil's active viewport matrix;
-- guarded OpenGL program, VAO and blending state restoration.
-
-The packages are deliberately separated:
-
-- `graph`: typed serializable-domain model, ports, connections and node contracts;
-- `nodes`: built-in math, XY/vector, noise and I/O nodes;
-- `compiler`: validation, topological graph lowering and GLSL generation;
-- `runtime`: Starsector/BoxUtil renderer bridge and GPU resource lifecycle.
-
-An editor can construct the same `Graph` objects, then later add JSON DTO/adapters without changing compilation or rendering.
+不再依赖 data.methods.Kratogen_BoxBasedUtils。旧独立 GlStateGuard 和 CombatRenderPlugin 实现已移除。Java 原型的 setInput 仍是整批共享的 float/vector 接口；完整顶点图及类型化实例参数由浏览器导出器提供。

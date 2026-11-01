@@ -1,8 +1,8 @@
 # MengGod Workflow Studio
 
-面向OpenGL shader 的可视化 GLSL 工作流编辑器。用户通过节点图构建片段着色器和顶点变换，导出后得到可直接迁移入 Mod 的 Java `CombatLayeredRenderingPlugin`、顶点着色器和片段着色器。
+面向OpenGL shader 的可视化 GLSL 工作流编辑器。用户通过独立节点图构建片段着色器和顶点变形，导出后得到可直接迁移入 Mod 的 Java `CombatLayeredRenderingPlugin`、顶点着色器和片段着色器。
 
-导出的 Java 代码采用 现代化 BoxUtil 渲染路径：`ShaderProgram`、`BUtilGlobalData` UBO、`ShaderCore` 默认四边形、`TransformUtil` 模型矩阵和可重复调用的 GPU 资源清理。
+导出的 Java 代码使用 OpenGL 4.3 / GLSL 430、BoxUtil `ShaderProgram` 与 `BUtilGlobalData` UBO。几何使用 VAO/VBO，实例变换和自定义参数使用 SSBO；单实例和批量实例走同一条绘制路径。目标环境为 Starsector 0.98a、BoxUtil 1.6.3、Java 17。
 
 ## 功能
 
@@ -13,15 +13,21 @@
 - 每个工作流可设置 `64-4096` 的预览画布宽高；GPU 预览按该分辨率渲染，并在方形节点内保持比例。
 - 纹理入口在预览中保持比例，运行时在 Java 构造器接收 `SpriteAPI`。
 - 导出前校验工作流端口、类型、分支边界、保留 uniform、Java 标识符和可映射的 public uniform 类型。
+- 顶点节点图：局部位置、UV、时间、参数、向量组合与拆分、算术、正弦和旋转；包含循环、端口类型和输出校验。
+- 输入节点可选择“整批共享／每个实例”，同一参数可用于顶点和片段阶段。
+- 顶点页支持多实例几何预览、选中实例参数覆盖、时间播放、图后局部变换和非矩形四边形。
 - 本地 MCP 桥接：Agent 可以读取和操作当前页面的未保存草稿。
 
 ## 目录
 
 ```text
-frontend/          浏览器编辑器
+frontend/          浏览器编辑器与 WebGL2 片段预览
+frontend/compiler/ 纯片段编译器、类型化顶点图
+frontend/export/   参数 ABI、Java/GLSL 生成与 ZIP
+frontend/runtime/  唯一 GPU 运行时源码（随导出打包）
 ai-gateway/        本地页面服务与 stdio MCP Server
 docs/              AI 工作流 JSON 格式
-src/workflowshader/ Java 领域模型与后续原生运行时架构
+src/workflowshader/ Java 图模型原型及共用新运行时的兼容适配器
 build/             导出回归测试
 ```
 
@@ -37,13 +43,66 @@ build/             导出回归测试
 
 ## 导出产物
 
-点击“导出运行文件”会生成：
+点击“导出运行文件”下载一个 ZIP，包含：
 
-- `YourPlugin.java`
-- `YourPlugin.vert`
-- `YourPlugin.frag`
+- `src/data/scripts/YourPlugin.java`：效果类、类型化参数 setter。
+- `src/data/scripts/workflow/WorkflowBatch.java` 与 `WorkflowGlState.java`：共用运行时。
+- 所选 shader 目录中的 `YourPlugin.vert`、`YourPlugin.frag`。
+- `parameter-layout.json`：参数类型、作用域、16 字节槽位及 SSBO 绑定契约。
+- `USAGE.txt`：构造参数与实例调用说明。
 
-把 Java 文件放入 Mod 源码的包路径，把两个 shader 放到项目中设置的 shader 目录。调用方创建 Plugin 时传入四个矩形顶点、`CombatEngineLayers`，以及工作流声明的 public uniform 和纹理 `SpriteAPI` 参数。生成物依赖 Starsector API 与 BoxUtil。
+将 src/ 内容合并到 Mod 源码目录，data/ 内容合并到 Mod 根目录，再编译 Java。多个效果共用同一份 workflow 运行时，升级时一起更新。保留原来的四顶点构造器，另提供使用项目几何的便捷构造器。旧 JSON 不含作用域时默认为共享；不含顶点图时自动使用直通图，原缩放／旋转／平移继续生效，零缩放也会保留。
+
+实例由游戏调用方创建、更新和移除。默认构造一个实例以兼容原调用习惯；使用批量方式前可调用 `clearInstances()`。位置、旋转、缩放只应用一次；片段用到的每实例参数由顶点阶段读取并通过 flat 接口传递，UV 正常插值。
+
+`frontend/examples/instanced-wave.workflow.json` 可直接导入。该例的调用方式为：
+
+```java
+InstancedWave effect = new InstancedWave(
+    CombatEngineLayers.BELOW_SHIPS_LAYER,
+    new Vector4f(1f, 0.3f, 0.1f, 1f), 20f);
+engine.addLayeredRenderingPlugin(effect);
+effect.clearInstances();
+WorkflowBatch.Instance first = effect.createInstance().setPosition(100f, 100f);
+effect.set_u_color(first, new Vector4f(1f, 0.3f, 0.1f, 1f));
+effect.set_u_amplitude(first, 20f);
+WorkflowBatch.Instance second = effect.createInstance().setPosition(300f, 100f).setAngle(45f);
+effect.set_u_color(second, new Vector4f(0.2f, 0.8f, 1f, 1f));
+effect.set_u_amplitude(second, 45f);
+// first.remove();                // 移除一个实例
+// effect.markExpired();          // 结束整批；cleanup 可重复调用
+```
+
+新增实例的自定义参数初始为零，请通过 setter 填写；输入节点的默认值用于编辑器预览。纹理、共享参数、混合方式和图层在一个批次内相同，需要不同材质时创建另一批次。透明效果保持实例插入顺序及批次登记顺序，不做破坏透明顺序的全局排序。API 在战斗／渲染线程调用。
+
+## 实际架构
+
+```mermaid
+flowchart TD
+    Editor[片段编辑器 / 顶点编辑器] --> Draft[项目与阶段图快照]
+    MCP[MCP 页面桥接] --> Draft
+    Draft --> FC[片段编译器]
+    Draft --> VC[类型化顶点编译器]
+    Draft --> ABI[参数作用域与 std430 布局]
+    FC --> Export[Java / GLSL / ZIP 生成器]
+    VC --> Export
+    ABI --> Export
+    FC --> Preview[WebGL2 片段预览]
+    VC --> Geometry[CPU 顶点与实例几何预览]
+    Export --> Effect[生成效果类：材质与类型化参数 API]
+    Effect --> Batch[WorkflowBatch：实例集合与绘制]
+    Batch --> Buffers[VAO/VBO + 变换 SSBO + 参数 SSBO]
+    Batch --> Box[BoxUtil ShaderProgram / 视口 UBO]
+    Guard[WorkflowGlState：状态保存与恢复] --> Batch
+    Lifecycle[首次 render 初始化 / 幂等 cleanup] --> Batch
+```
+
+- GPU 资源只在有效渲染上下文创建。初始化失败、战斗结束及主动过期共用清理路径。
+- 变换数据遵守 BoxUtil `Fixed2DStruct` 的 32 字节布局，批次拥有独立 SSBO；不修改 BoxUtil 全局实例池。自定义参数每项占一个 16 字节槽，bool/int/uint 使用整数位模式。
+- 只有精确匹配标准四边形时借用 `ShaderCore` 共享 VAO；其他四顶点保留原形状并拥有独立 VAO/VBO。共享几何与视口 UBO 不由效果释放。
+- 数据变化时更新实例缓冲；静止批次复用已有数据。绘制后恢复 program、VAO、普通缓冲绑定、SSBO 索引范围、纹理单元、混合及深度状态。
+- 为支持任意顶点变形，目前关闭基于 CPU 半径的批次裁剪；未实现 GPU 粒子模拟、跨材质自动合批、任意网格或 WebGL2 SSBO 性能预览。
+- Java 图模型原型通过 `WorkflowShaderPlugin` 适配到同一运行时，不再依赖其他 Mod 的私有工具类。架构细节见 [架构说明](src/workflowshader/ARCHITECTURE.md)。
 
 ## MCP
 
@@ -91,15 +150,16 @@ npm run start
 
 ## 验证
 
-开发者可在仓库根目录运行：
+先安装测试依赖：`npm install`。浏览器测试默认使用本机 Edge；也可设置 BROWSER_CHANNEL 为已安装的 Chromium 渠道。测试创建独立浏览器上下文和桥接端口，不修改用户草稿。
 
 ```powershell
-node --check frontend/app.js
-& .\build\verify-workflow-export.ps1
+npm test
+npm run test:browser
+& .\build\verify-native.ps1 -GameRoot E:\StarSector -JdkHome <JDK17目录>
 ```
 
-回归测试通过本地桥接实际导出纯色、public uniform、单/双纹理、Tint、自定义 `out/inout`、If、For，以及非法输入拒绝案例。
+第三步需要本机 OpenGL 4.3，使用 LWJGL Pbuffer 离屏上下文，编译全部生成 Java 与 Java 原型，链接 shader 并检查真实像素及 GL 状态。实际验证结果和游戏内验收步骤见 [验证记录](docs/VALIDATION.md)。
 
 ## 状态
 
-当前版本为可运行的 MVP。浏览器编辑器是主实现；`src/workflowshader` 保留了与编辑器数据模型对应的 Java 架构，为后续原生服务、实时渲染和更深的游戏内集成准备。
+1.1.0 源码加入顶点节点图及实例化导出。浏览器编辑器为主实现；Java graph/compiler 为兼容原型。更新源码后需要重新构建桌面包，旧 Releases 不会自动更新。
