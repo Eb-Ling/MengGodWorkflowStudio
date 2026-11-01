@@ -75,20 +75,32 @@ effect.set_u_amplitude(second, 45f);
 
 新增实例的自定义参数初始为零，请通过 setter 填写；输入节点的默认值用于编辑器预览。纹理、共享参数、混合方式和图层在一个批次内相同，需要不同材质时创建另一批次。透明效果保持实例插入顺序及批次登记顺序，不做破坏透明顺序的全局排序。API 在战斗／渲染线程调用。
 
+## 顶点与片段共用工作流
+
+顶部两个阶段标签切换同一个编辑器，不重新加载页面。缩放、平移、Shift 框选、批量拖动、复制／剪切／粘贴、删除、撤销／重做、端口拖线、子图和自定义节点都走同一套逻辑；画布视图、选区和撤销栈按阶段分别保存，刷新页面后撤销栈重置。
+
+数学、向量、纹理、噪声、If／For、参数及自定义节点共用。顶点专用入口为“局部顶点坐标”，出口为“顶点输出”的 position / uv；片段出口为“片段输出”的 color。参数可直接在任一阶段声明，导出合并同名声明并校验类型和作用域，实例参数仍由顶点读取 SSBO，再按需传到片段阶段。
+
+“几何设置”保留四顶点、平移、缩放、旋转及多实例预览。顶点图与片段图共同驱动 WebGL2 几何预览；浏览器按实例提交参数，不代表游戏端 SSBO 性能。工作流配置、自定义节点、右键菜单和几何弹窗使用统一深色按钮主题，主操作与删除操作只用颜色区分。
+
+旧版顶点页面地址会转入共享编辑器；1.1 的 op / inputs 顶点图自动迁移，保存为与片段图一致的 nodes / links 格式。
+
 ## 实际架构
 
 ```mermaid
 flowchart TD
-    Editor[片段编辑器 / 顶点编辑器] --> Draft[项目与阶段图快照]
-    MCP[MCP 页面桥接] --> Draft
-    Draft --> FC[片段编译器]
-    Draft --> VC[类型化顶点编译器]
-    Draft --> ABI[参数作用域与 std430 布局]
-    FC --> Export[Java / GLSL / ZIP 生成器]
-    VC --> Export
+    Stage[阶段配置：输入与输出节点] --> Editor[同一工作流编辑器与 GraphStore]
+    Editor --> Canvas[共享缩放 / 框选 / 批量操作 / 连线 / 撤销]
+    Editor --> Draft[项目草稿：顶点图与片段图]
+    MCP[MCP 当前阶段命令] --> Editor
+    Draft --> Compiler[同一类型化图编译器]
+    Compiler --> VS[顶点下游：position 与 UV]
+    Compiler --> FS[片段下游：color]
+    Draft --> ABI[跨阶段参数校验与 std430 布局]
+    VS --> Export[Java / GLSL / ZIP 生成器]
+    FS --> Export
     ABI --> Export
-    FC --> Preview[WebGL2 片段预览]
-    VC --> Geometry[CPU 顶点与实例几何预览]
+    Compiler --> Preview[WebGL2 节点与实例几何预览]
     Export --> Effect[生成效果类：材质与类型化参数 API]
     Effect --> Batch[WorkflowBatch：实例集合与绘制]
     Batch --> Buffers[VAO/VBO + 变换 SSBO + 参数 SSBO]
@@ -162,4 +174,4 @@ npm run test:browser
 
 ## 状态
 
-1.1.0 源码加入顶点节点图及实例化导出。浏览器编辑器为主实现；Java graph/compiler 为兼容原型。更新源码后需要重新构建桌面包，旧 Releases 不会自动更新。
+1.2.0 将顶点与片段编辑器合并为同一工作流引擎，统一按钮主题，并保留实例化导出。浏览器编辑器为主实现；Java graph/compiler 为兼容原型。更新源码后需要重新构建桌面包，旧 Releases 不会自动更新。

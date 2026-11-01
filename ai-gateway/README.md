@@ -66,3 +66,7 @@ node server.mjs
 ## 生产化后续
 
 将当前浏览器传入的 `graph/catalog` 替换为本地 GraphApplicationService 的只读快照；为每个 draft 附加 `projectId`、`revision` 与命令模拟结果。应用前若 revision 不一致，应拒绝并要求重新生成草稿。
+
+## 1.2 共享阶段编辑器
+
+workflow_get_summary / workflow_get_current 返回 stage（vertex 或 fragment）；graph 与 catalog 对应当前阶段。workflow_set_stage 切换共享画布，随后原有 workflow_submit_commands、选区、视图和 SET_OUTPUT 操作同样适用。顶点输出是 vertex.output，必须连接 position 和 uv。顶点图使用与片段一致的 nodes / links / outputNodeId 格式，旧 op 图可迁移。导出始终包含两个阶段；顶点纹理预览数据同样默认从摘要排除。

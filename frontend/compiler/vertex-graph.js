@@ -26,6 +26,10 @@ export function normalizeTransform(value={}) {
   if(vertices.length!==4||vertices.some(p=>!Array.isArray(p)||p.length!==2||p.some(v=>!Number.isFinite(Number(v)))))throw new Error('需要四个有效的二维顶点');
   const graph=value.graph??defaultVertexGraph();
   if(!Array.isArray(graph.nodes)||graph.nodes.length>256)throw new Error('无效顶点图');
+  if(Array.isArray(graph.links)){
+    const ids=new Set();for(const n of graph.nodes){if(typeof n.id!=='string'||!n.id||ids.has(n.id)||typeof n.typeId!=='string')throw new Error('无效或重复顶点节点');ids.add(n.id);}
+    return {vertices:vertices.map(p=>p.map(Number)),tx:number('tx',0),ty:number('ty',0),sx:number('sx',1),sy:number('sy',1),rotation:number('rotation',0),graph:structuredClone(graph)};
+  }
   const ids=new Set();for(const n of graph.nodes){
     if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n.id)||ids.has(n.id)||!vertexCatalog[n.op])throw new Error('无效或重复顶点节点');ids.add(n.id);
     for(const [key,id] of Object.entries(n.inputs||{}))if(!(key in vertexCatalog[n.op].inputs)||typeof id!=='string'||(id&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(id)))throw new Error('无效顶点端口');

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const port = Number(process.env.WORKFLOW_BRIDGE_PORT || 4174);
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../frontend");
 const commandTypes = new Set(["ADD_NODE", "REMOVE_NODE", "MOVE_NODE", "CONNECT", "DISCONNECT", "SET_PROPERTY", "RENAME_NODE", "SET_OUTPUT"]);
-const actionTypes = new Set(["SAVE_WORKFLOW", "EXPORT_RUNTIME", "NEW_WORKFLOW", "RESET_CURRENT_DRAFT", "LOAD_MING_GOD_EXAMPLE", "OPEN_WORKFLOW", "DELETE_WORKFLOW", "IMPORT_WORKFLOW_DATA", "SET_PROJECT_CONFIG", "SET_VERTEX_TRANSFORM", "SET_VIEW", "SET_SELECTION", "DELETE_SELECTED", "DISCONNECT_SELECTED", "TOGGLE_SELECTED_PREVIEW", "SAVE_SELECTION_AS_WORKFLOW_NODE", "EXPAND_WORKFLOW_NODE", "DELETE_WORKFLOW_NODE", "UPSERT_CUSTOM_NODE", "DELETE_CUSTOM_NODE", "ADD_DEMO"]);
+const actionTypes = new Set(["SET_STAGE", "SAVE_WORKFLOW", "EXPORT_RUNTIME", "NEW_WORKFLOW", "RESET_CURRENT_DRAFT", "LOAD_MING_GOD_EXAMPLE", "OPEN_WORKFLOW", "DELETE_WORKFLOW", "IMPORT_WORKFLOW_DATA", "SET_PROJECT_CONFIG", "SET_VERTEX_TRANSFORM", "SET_VIEW", "SET_SELECTION", "DELETE_SELECTED", "DISCONNECT_SELECTED", "TOGGLE_SELECTED_PREVIEW", "SAVE_SELECTION_AS_WORKFLOW_NODE", "EXPAND_WORKFLOW_NODE", "DELETE_WORKFLOW_NODE", "UPSERT_CUSTOM_NODE", "DELETE_CUSTOM_NODE", "ADD_DEMO"]);
 
 const editorLeaseMs = 10_000;
 let latestState = { source: "awaiting_active_editor", graph: null, project: null, catalog: [] };
@@ -60,7 +60,7 @@ function validateCommands(commands, expectedRevision) {
     if (command.type === "MOVE_NODE") { finite(payload.x, "x"); finite(payload.y, "y"); node.canvasX = Number(payload.x); node.canvasY = Number(payload.y); continue; }
     if (command.type === "SET_PROPERTY") { if (typeof payload.key !== "string" || !payload.key) throw new Error("SET_PROPERTY requires a property key."); continue; }
     if (command.type === "RENAME_NODE") { if (typeof payload.title !== "string") throw new Error("RENAME_NODE requires a title string."); continue; }
-    if (command.type === "SET_OUTPUT") { if (node.typeId !== "io.output") throw new Error("SET_OUTPUT can only target io.output."); continue; }
+    if (command.type === "SET_OUTPUT") { if (node.typeId !== (latestState.stage === "vertex" ? "vertex.output" : "io.output")) throw new Error("SET_OUTPUT must target the current stage output."); continue; }
     const link = payload.link;
     if (!link || !getNode(model, link.fromNode) || !getNode(model, link.toNode)) throw new Error("Link references an unknown node.");
     const from = socketPort(nodeDefinition(getNode(model, link.fromNode).typeId), "output", link.fromSocket), to = socketPort(nodeDefinition(getNode(model, link.toNode).typeId), "input", link.toSocket);

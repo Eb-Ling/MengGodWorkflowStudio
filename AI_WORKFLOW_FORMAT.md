@@ -88,18 +88,12 @@ MCP 读取和编辑的是用户明确激活的编辑器草稿，不要求先保�
 
 为了让 AI 生成的画布更易读，按数据流从左到右排版：输入节点放在 `canvasX=80` 附近，每个逻辑阶段增加约 `240~300`，同一阶段的节点使用不同 `canvasY`（建议间隔 `110~150`）。节点坐标只是编辑器布局，不影响 GLSL 结果；也可以通过 MCP 的 `workflow_auto_layout` 自动整理。
 
-## 1.1.0：顶点图和实例参数
+## 1.2.0：共享阶段图和实例参数
 
-保持 schemaVersion: 1，新增字段向后兼容。
-
-- io.input.properties.scope 可为 shared（默认）或 instance。类型支持 BOOL/INT/UINT/FLOAT/VEC2/VEC3/VEC4；同名输入必须拥有同类型与作用域。
-- project.blendMode 为 alpha（默认）或 additive。
-- vertexTransform 保留 vertices、tx、ty、sx、sy、rotation，新增 graph: {nodes, output}。省略 graph 使用直通顶点图。零缩放有效。
-- 顶点节点格式：{id, op, x, y, inputs:{端口:来源节点ID}}；constant 使用 value，parameter 使用 parameter（对应 io.input 的 uniform 名）。
-- op 及端口定义以 frontend/compiler/vertex-graph.js 的 vertexCatalog 为准。parameter 节点当前支持 float / vec2；最终 position 和 uv 都必须为 vec2。
-- 局部节点计算后应用项目局部变换，再应用实例缩放、旋转、平移及视口矩阵。禁止把实例变换重复接入片段图。
-- 每实例参数通过顶点阶段读取 SSBO 后，以生成的 flat 接口传入片段阶段。UV 正常插值。
-- MCP workflow_set_vertex_transform 接受 graph，未给出的字段保留当前草稿值。片段页激活时可通过该工具提交完整顶点图；独立顶点页目前不提供自己的 MCP 节点目录。
-- workflow_export_runtime 返回的 java/vertex/fragment 项保持可读取，各 filename 改为 ZIP 内相对路径；另含共用 Java 运行时、参数布局和说明。界面下载单个 ZIP。
-
-完整实例见 frontend/examples/instanced-wave.workflow.json。新建实例的参数初始为零，输入节点 defaultValue 是预览值；调用方通过生成的 set_u_* 方法赋值。
+- graph 保存片段图；vertexTransform.graph 保存顶点图。两者均为 {nodes, links, outputNodeId, revision}，节点共用 id/typeId/title/canvasX/canvasY/properties，连线共用 fromNode/fromSocket/toNode/toSocket。
+- 顶点入口 input.position 的 value 为 VEC2；input.uv 的 uv 为 VEC2。出口 vertex.output 具有 position、uv 两个 VEC2 输入，必须全部连接。片段图使用 io.output 的 color 输入，阶段专用节点不能放入另一阶段。
+- 数学、向量、纹理、噪声、控制流、io.input 和自定义 GLSL 节点共用。io.input.properties.scope 为 shared 或 instance；valueType 支持 BOOL/INT/UINT/FLOAT/VEC2/VEC3/VEC4 的运行时参数。可在任意阶段声明，同名参数必须类型和作用域一致，导出只生成一个 setter / ABI 槽位。
+- vertexTransform 保留 vertices、tx、ty、sx、sy、rotation；零缩放有效。省略 graph 使用直通顶点图。旧 {nodes:[{op,inputs,...}],output} 图仍能导入，自动迁移后保存为通用图；旧 parameter 通过片段图中同名 io.input 解析类型与作用域。
+- workflow_get_summary / workflow_get_current 的 stage 标明当前阶段，graph 是当前正在编辑的图。workflow_set_stage({stage:"vertex"}) 切换后，普通节点命令、选区、视图、SET_OUTPUT 等均操作顶点图；节点目录随阶段过滤。
+- workflow_set_vertex_transform 支持提交完整通用顶点图。workflow_export_runtime 在任意阶段导出整项目：Java、两个 GLSL、共用运行时、参数布局及使用说明，界面下载单个 ZIP。
+- 几何预览使用两张图的 WebGL2 编译结果。实例属性在顶点读取 SSBO，经 flat 接口按需传到片段；片段不使用 gl_InstanceID。

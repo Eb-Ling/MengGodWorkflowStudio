@@ -31,6 +31,7 @@ function Import-Case($name, $className, $nodes, $links, $outputNodeId) {
     $state = Invoke-RestMethod "$base/v1/state"
     [pscustomobject]@{
         Name = $name
+        Graph = $state.graph
         Java = $state.generatedSources.java.content
         Vertex = $state.generatedSources.vertex.content
         Fragment = $state.generatedSources.fragment.content
@@ -265,4 +266,4 @@ $results | ForEach-Object {
     [pscustomobject]@{ Name = $_.Name; JavaChars = $_.Java.Length; VertexChars = $_.Vertex.Length; FragmentChars = $_.Fragment.Length; JavaPipeline = $javaOk; ShaderPair = $pairOk; TextureBindings = $textureOk; UniformBindings = $uniformOk; CustomBindings = $customOk; MultiTextureBindings = $multiTextureOk; JavaKeywordSafety = $keywordOk; ControlFlow = $controlFlowOk }
 } | Format-Table -AutoSize
 
-$results | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 "build/workflow-export-verification-results.json"
+$results | ConvertTo-Json -Depth 30 | Set-Content -Encoding utf8 "build/workflow-export-verification-results.json"

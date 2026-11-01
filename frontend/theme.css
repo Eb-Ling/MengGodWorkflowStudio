@@ -1,0 +1,5 @@
+/* Keep existing layout rules; the common control theme wins without specificity hacks. */
+@import url('./styles.css') layer(layout);
+@import url('./enhanced.css') layer(layout);
+@import url('./custom-editor.css') layer(layout);
+@import url('./controls.css');

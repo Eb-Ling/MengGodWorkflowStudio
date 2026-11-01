@@ -1,0 +1,31 @@
+/* All controls inherit one theme, including buttons created by dialogs/plugins. */
+:root { color-scheme: dark; --button-bg:#1b2a3b; --button-hover:#263d56; --button-border:#3a5270; --button-text:#dce9f7; }
+html body button, html body input[type=button], html body input[type=submit], html body .page-tab {
+  appearance:none; font-family:inherit; font-size:12px; font-weight:500;
+  color:var(--button-text); background:var(--button-bg); border:1px solid var(--button-border);
+  border-radius:5px; padding:6px 10px; line-height:1.4; cursor:pointer;
+  transition:background .12s, border-color .12s;
+}
+html body button:hover, html body .page-tab:hover { background:var(--button-hover); border-color:#6b98c4; }
+html body button:focus-visible, html body .page-tab:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+html body button:disabled { opacity:.45; cursor:not-allowed; }
+html body button.primary, html body button.save-custom, html body .page-tab.active { background:#245786; border-color:#548fc2; color:#eef7ff; }
+html body button.danger, html body button.delete-custom, html body button.delete-workflow { color:#ffb2bf; border-color:#70414a; background:#30212c; }
+html body button.danger:hover, html body button.delete-custom:hover, html body button.delete-workflow:hover { background:#4a2b38; }
+html body button.dialog-close, html body button.icon-button { padding:3px 7px; }
+html body .context-menu button { text-align:left; width:100%; margin:2px 0; }
+html body button[hidden] { display:none; }
+.topbar { gap:12px; }
+.toolbar { flex-wrap:wrap; gap:5px; }
+.geometry-dialog { width:min(960px,95vw); max-height:90vh; overflow:auto; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:8px; }
+.geometry-dialog header { display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; }
+.geometry-fields { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.geometry-fields label { display:grid; gap:4px; color:var(--muted); }
+.geometry-fields input { min-width:0; width:100%; }
+.geometry-dialog canvas { display:block; width:100%; height:300px; background:var(--bg); margin-top:16px; }
+.geometry-dialog::backdrop { background:#050a12aa; }
+.geometry-dialog output { display:block; color:var(--muted); margin:10px 0; }
+@media(max-width:1300px){.brand small,.connection-status{display:none}.topbar{height:auto;min-height:54px;padding:8px}.toolbar button{font-size:11px;padding:5px 7px}}
+
+html body select { color:var(--button-text); background:var(--button-bg); border:1px solid var(--button-border); border-radius:5px; padding:6px 10px; font:inherit; }
+.workflow-create select { display:block; width:100%; margin-top:4px; }

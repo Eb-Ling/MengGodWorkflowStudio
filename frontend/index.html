@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Workflow Shader Editor · MVP</title>
-  <link rel="stylesheet" href="./styles.css" /><link rel="stylesheet" href="./enhanced.css" /><link rel="stylesheet" href="./custom-editor.css" />
+  <link rel="stylesheet" href="./theme.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">◇</span> Workflow Shader <small>MVP</small></div>
-    <nav class="page-tabs"><a class="page-tab active" href="./index.html">片段工作流</a><a class="page-tab" href="./vertex.html">顶点工作流</a></nav>
-    <div class="toolbar"><button id="workflow-manager" class="workflow-button">工作流</button><button id="import-workflow">导入工作流</button><button id="new-graph">重置流程</button><button id="add-demo">添加演示节点</button><button id="save-workflow">保存工作流</button><button id="export-runtime">导出运行文件</button><input id="workflow-file-input" type="file" accept=".json,.workflow.json,application/json" hidden></div>
+    <nav class="page-tabs"><a class="page-tab active" data-stage="fragment" href="./index.html?stage=fragment">片段工作流</a><a class="page-tab" data-stage="vertex" href="./index.html?stage=vertex">顶点工作流</a></nav>
+    <div class="toolbar"><button id="vertex-settings" hidden>几何设置</button><button id="workflow-manager" class="workflow-button">工作流</button><button id="import-workflow">导入工作流</button><button id="new-graph">重置流程</button><button id="add-demo">添加演示节点</button><button id="save-workflow">保存工作流</button><button id="export-runtime">导出运行文件</button><input id="workflow-file-input" type="file" accept=".json,.workflow.json,application/json" hidden></div>
     <div class="connection-status"><i></i> <span id="workflow-name">未命名流程</span> · revision <span id="revision">0</span></div>
   </header>
   <main class="workspace">

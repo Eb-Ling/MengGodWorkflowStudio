@@ -1,9 +1,14 @@
-import {createFragmentCompiler} from './compiler/fragment-compiler.js';
+import {installGeometrySettings} from './geometry-settings.js';
+import {createWorkflowCompiler} from './compiler/workflow-compiler.js';
+import {stages,stageNodes,supportsStage,migrateVertexGraph} from './workflow-stages.js';
+let activeStage=new URLSearchParams(location.search).get('stage')==='vertex'?'vertex':'fragment';
+const stageHistory=new Map();
 import {normalizeTransform} from './compiler/vertex-graph.js';
 import {buildRuntimeSources} from './export/runtime-exporter.js';
 import {downloadZip} from './export/zip.js';
 const runtimeFiles=await Promise.all(['WorkflowBatch.java','WorkflowGlState.java'].map(async name=>{const response=await fetch('./runtime/'+name);if(!response.ok)throw new Error('运行时模板加载失败：'+name);return {filename:'src/data/scripts/workflow/'+name,content:await response.text()};}));
 const catalog = [
+  ...stageNodes,
   { typeId: "io.input", title: "输入", category: "输入输出", inputs: [], outputs: [{ name: "value", type: "FLOAT" }], properties: { uniform: "u_value", defaultValue: "0.0", scope:"shared" } },
   { typeId: "input.texture", title: "纹理入口", category: "输入输出", inputs: [], outputs: [{ name: "texture", type: "SAMPLER2D" }], properties: { uniform: "u_texture", textureId: "texture", previewDataUrl: "" } },
   { typeId: "input.time", title: "时间 Time", category: "输入输出", inputs: [], outputs: [{ name: "time", type: "FLOAT" }], properties: { uniform: "u_time", defaultValue: "0.0", autoAdvance: true } },
@@ -225,7 +230,7 @@ function mingGodSignGraph() {
 }
 class GraphStore {
   constructor() { this.listeners = new Set(); this.previewRevision = 0; this.undoStack = []; this.redoStack = []; this.reset(loadCurrentGraph()); }
-  reset(graph = starterGraph()) { this.undoStack=[]; this.redoStack=[]; migrateBranchMetadata(graph); graph.previewRevision = ++this.previewRevision; this.graph = graph; this.emit(); }
+  reset(graph = stageStarterGraph()) { this.undoStack=[]; this.redoStack=[]; migrateBranchMetadata(graph); graph.revision=Number.isFinite(graph.revision)?graph.revision:0; graph.previewRevision = ++this.previewRevision; this.graph = graph; this.emit(); }
   subscribe(listener) { this.listeners.add(listener); listener(this.snapshot()); return () => this.listeners.delete(listener); }
   snapshot() { return clone(this.graph); }
   emit() { this.listeners.forEach(listener => listener(this.snapshot())); }
@@ -247,7 +252,7 @@ class GraphStore {
       g.links = g.links.filter(l => !(l.toNode === payload.link.toNode && l.toSocket === payload.link.toSocket)); g.links.push(payload.link);
     }
     if (type === "DISCONNECT") g.links = g.links.filter(l => !(l.fromNode === payload.link.fromNode && l.fromSocket === payload.link.fromSocket && l.toNode === payload.link.toNode && l.toSocket === payload.link.toSocket));
-    if (payload.node?.typeId === "io.output") g.outputNodeId = payload.node.id;
+    if (payload.node?.typeId === stages[activeStage].output) g.outputNodeId = payload.node.id;
     resolveTypes(g); pruneInvalidLinks(g);
     if (type !== "MOVE_NODE") g.previewRevision = ++this.previewRevision;
     g.revision++; this.emit();
@@ -290,7 +295,7 @@ const workflowBridge = (() => {
   let active = false;
   let lastClaimAt = 0;
   const base = () => `http://127.0.0.1:${port}`;
-  const statePayload = graph => ({ source: "active_editor_draft", editorId, graph, project: projectConfig(), vertexTransform: currentVertexTransform(), selection: [...ui.selectedNodes], view:{x:ui.view.x,y:ui.view.y,zoom:ui.view.zoom}, savedWorkflows: workflowLibrary().map(item=>({id:item.id,title:item.config.title,className:item.config.className,shaderDir:item.config.shaderDir,nodeCount:item.graph.nodes.length,linkCount:item.graph.links.length})), customNodes: JSON.parse(localStorage.getItem("workflow.customNodes")||"[]"), workflowNodes: workflowNodeLibrary().map(item=>({id:item.id,title:item.title,preset:!!item.preset,description:item.description||"",nodeCount:item.graph.nodes.length,linkCount:item.graph.links.length})), generatedSources: lastGeneratedSources, catalog: catalog.map(({typeId,title,category,inputs,outputs,properties})=>({typeId,title,category,inputs,outputs,properties})) });
+  const statePayload = graph => ({ source: "active_editor_draft", editorId, stage:activeStage, graph, fragmentGraph:currentFragmentGraph(), project: projectConfig(), vertexTransform: currentVertexTransform(), selection: [...ui.selectedNodes], view:{x:ui.view.x,y:ui.view.y,zoom:ui.view.zoom}, savedWorkflows: workflowLibrary().map(item=>({id:item.id,title:item.config.title,className:item.config.className,shaderDir:item.config.shaderDir,nodeCount:item.graph.nodes.length,linkCount:item.graph.links.length})), customNodes: JSON.parse(localStorage.getItem("workflow.customNodes")||"[]"), workflowNodes: workflowNodeLibrary().map(item=>({id:item.id,title:item.title,preset:!!item.preset,description:item.description||"",nodeCount:item.graph.nodes.length,linkCount:item.graph.links.length})), generatedSources: lastGeneratedSources, catalog: catalog.filter(n=>supportsStage(n.typeId,activeStage)).map(({typeId,title,category,inputs,outputs,properties})=>({typeId,title,category,inputs,outputs,properties})) });
   async function publish(graph) { try { const response=await fetch(`${base()}/v1/state`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(statePayload(graph)) }); if(!response.ok)return null;const result=await response.json();active=result.active===true;return result; } catch (_) { active=false;return null; } }
   async function claimActive(graph=store.snapshot(),force=false) { if(!force&&Date.now()-lastClaimAt<750)return active;lastClaimAt=Date.now();await publish(graph);try { const response=await fetch(`${base()}/v1/activate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({editorId})});if(!response.ok)return false;const result=await response.json();active=result.active===true;return active; } catch (_) { active=false;return false; } }
   async function pull() {
@@ -318,16 +323,17 @@ const workflowBridge = (() => {
   return { publish, pull, claimActive, setPort, url, port:()=>port, editorId:()=>editorId, active:()=>active };
 })();
 function applyBridgeAction(type, payload) {
-  if (type === "SAVE_WORKFLOW") saveWorkflow();
+  if (type === "SET_STAGE") {if(!stages[payload.stage])throw new Error("未知着色阶段");switchStage(payload.stage);}
+  else if (type === "SAVE_WORKFLOW") saveWorkflow();
   else if (type === "EXPORT_RUNTIME") exportRuntime(true);
   else if (type === "NEW_WORKFLOW") { const config=bridgeProjectConfig(payload);openWorkflow(config,starterGraph(),false);saveWorkflow(); }
-  else if (type === "RESET_CURRENT_DRAFT") { store.reset(starterGraph());ui.selected=null;ui.selectedNodes.clear(); }
+  else if (type === "RESET_CURRENT_DRAFT") { store.reset(stageStarterGraph());ui.selected=null;ui.selectedNodes.clear(); }
   else if (type === "LOAD_MING_GOD_EXAMPLE") loadMingGodExample(false);
   else if (type === "OPEN_WORKFLOW") { const item=workflowLibrary().find(entry=>entry.id===payload.id);if(!item)throw new Error(`未找到工作流：${payload.id}`);openWorkflow(item.config,item.graph,true,item.vertexTransform); }
   else if (type === "DELETE_WORKFLOW") { const existing=workflowLibrary().find(entry=>entry.id===payload.id);if(!existing)throw new Error(`未找到工作流：${payload.id}`);const remaining=workflowLibrary().filter(entry=>entry.id!==payload.id);localStorage.setItem("workflow.library",JSON.stringify(remaining));if(projectConfig().id===payload.id)openWorkflow(newWorkflowConfig(),starterGraph(),false);renderWorkflowLibrary(); }
   else if (type === "IMPORT_WORKFLOW_DATA") { const imported=validateImportedWorkflow(payload.workflow);openWorkflow(imported.project,imported.graph,false,imported.vertexTransform);saveWorkflow(); }
   else if (type === "SET_PROJECT_CONFIG") { const config={...projectConfig(),...bridgeProjectConfig(payload,projectConfig())};sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config)); }
-  else if (type === "SET_VERTEX_TRANSFORM") { const transform=bridgeVertexTransform({...currentVertexTransform(),...payload});sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform)); }
+  else if (type === "SET_VERTEX_TRANSFORM") { const transform=bridgeVertexTransform({...currentVertexTransform(),...payload});transform.graph=migrateVertexGraph(transform.graph,currentFragmentGraph());validateStageGraph(transform.graph,"vertex");stageHistory.delete("vertex");sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));if(activeStage==="vertex")store.reset(migrateVertexGraph(transform.graph,currentFragmentGraph())); }
   else if (type === "SET_VIEW") { ui.view.x=Number(payload.x)||0;ui.view.y=Number(payload.y)||0;ui.view.zoom=Math.max(.35,Math.min(1.8,Number(payload.zoom)||1));updateView(); }
   else if (type === "SET_SELECTION") { const valid=new Set(store.snapshot().nodes.map(node=>node.id));ui.selectedNodes=new Set((payload.nodeIds||[]).filter(id=>valid.has(id)));ui.selected=[...ui.selectedNodes][0]||null;renderGraph(store.snapshot());renderInspector(store.snapshot()); }
   else if (type === "DELETE_SELECTED") { const ids=[...ui.selectedNodes];ui.selectedNodes.clear();ui.selected=null;store.removeNodes(ids); }
@@ -521,7 +527,7 @@ function renderCatalog(filter = "") {
   if (!filter) renderWorkflowNodeCatalog(root);
   const groups = new Map();
   const compositeTypes=new Set(["shape.lanceTaper","shape.xFade","shape.fadeVertical","shape.fadeHorizontal","sdf.lance","curve.quarticBezier"]);
-  catalog.filter(n => !compositeTypes.has(n.typeId) && (n.title.includes(filter) || n.category.includes(filter))).forEach(n => { if (!groups.has(n.category)) groups.set(n.category, []); groups.get(n.category).push(n); });
+  catalog.filter(n => supportsStage(n.typeId,activeStage) && !compositeTypes.has(n.typeId) && (n.title.includes(filter) || n.category.includes(filter))).forEach(n => { if (!groups.has(n.category)) groups.set(n.category, []); groups.get(n.category).push(n); });
   groups.forEach((nodes, category) => {
     const section = document.createElement("section"),collapsed=!filter&&ui.catalogCollapsed.has(category);section.className=`catalog-group${collapsed?" collapsed":""}`;
     const heading=document.createElement("button");heading.type="button";heading.className="catalog-group-title";heading.innerHTML=`<span>${category}</span><span class="catalog-chevron">▾</span>`;heading.addEventListener("click",()=>{if(ui.catalogCollapsed.has(category))ui.catalogCollapsed.delete(category);else ui.catalogCollapsed.add(category);localStorage.setItem("workflow.catalogCollapsed",JSON.stringify([...ui.catalogCollapsed]));renderCatalog(document.querySelector("#node-search").value);});section.append(heading);
@@ -533,14 +539,14 @@ function workflowNodeLibrary(){try{return [...presetWorkflowNodes(),...JSON.pars
 function isUserCustomNode(typeId){return typeId.startsWith("custom.")&&!['custom.radialFade','custom.innerFade'].includes(typeId);}
 function deleteUserCustomNode(event,typeId,title){event.preventDefault();if(!window.confirm(`删除自定义节点“${title}”？现有工作流中的实例不会自动删除。`))return;const nodes=JSON.parse(localStorage.getItem("workflow.customNodes")||"[]").filter(node=>node.typeId!==typeId);localStorage.setItem("workflow.customNodes",JSON.stringify(nodes));const index=catalog.findIndex(node=>node.typeId===typeId);if(index>=0)catalog.splice(index,1);renderCatalog(document.querySelector("#node-search").value);document.querySelector("#footer-message").textContent=`已删除自定义节点：${title}`;}
 function deleteWorkflowNode(event,item){event.preventDefault();if(!window.confirm(`删除工作流节点“${item.title}”？`))return;const saved=JSON.parse(localStorage.getItem("workflow.subgraphNodes")||"[]").filter(node=>node.id!==item.id);localStorage.setItem("workflow.subgraphNodes",JSON.stringify(saved));renderCatalog(document.querySelector("#node-search").value);document.querySelector("#footer-message").textContent=`已删除工作流节点：${item.title}`;}
-function renderWorkflowNodeCatalog(root){const nodes=workflowNodeLibrary(),section=document.createElement("section");section.className="catalog-group workflow-node-group";section.innerHTML='<div class="catalog-group-title static"><span>工作流节点</span><span class="catalog-chevron">▣</span></div>';const entries=document.createElement("div");entries.className="catalog-entries";nodes.forEach(item=>{const entry=document.createElement("div");entry.className=`catalog-node workflow-catalog-node${item.preset?"":" user-workflow-node"}`;entry.dataset.workflowNodeId=item.id;entry.draggable=true;entry.title=item.preset?(item.description||"拖到工作区展开子流程图"):`用户工作流节点：${item.description||"拖到工作区展开子流程图"}（右键删除）`;entry.innerHTML=`<span class="catalog-dot"></span><span>${item.title}</span>${item.preset?"":"<small>用户</small>"}`;entry.addEventListener("dragstart",event=>{event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("workflow-node-id",item.id);});if(!item.preset)entry.addEventListener("contextmenu",event=>deleteWorkflowNode(event,item));entries.append(entry);});section.append(entries);root.append(section);}
+function renderWorkflowNodeCatalog(root){const nodes=workflowNodeLibrary().filter(item=>item.graph.nodes.every(n=>supportsStage(n.typeId,activeStage))),section=document.createElement("section");section.className="catalog-group workflow-node-group";section.innerHTML='<div class="catalog-group-title static"><span>工作流节点</span><span class="catalog-chevron">▣</span></div>';const entries=document.createElement("div");entries.className="catalog-entries";nodes.forEach(item=>{const entry=document.createElement("div");entry.className=`catalog-node workflow-catalog-node${item.preset?"":" user-workflow-node"}`;entry.dataset.workflowNodeId=item.id;entry.draggable=true;entry.title=item.preset?(item.description||"拖到工作区展开子流程图"):`用户工作流节点：${item.description||"拖到工作区展开子流程图"}（右键删除）`;entry.innerHTML=`<span class="catalog-dot"></span><span>${item.title}</span>${item.preset?"":"<small>用户</small>"}`;entry.addEventListener("dragstart",event=>{event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("workflow-node-id",item.id);});if(!item.preset)entry.addEventListener("contextmenu",event=>deleteWorkflowNode(event,item));entries.append(entry);});section.append(entries);root.append(section);}
 function normalizeGraphFragment(fragment){const source=clone(fragment),minX=Math.min(...source.nodes.map(node=>node.canvasX)),minY=Math.min(...source.nodes.map(node=>node.canvasY));source.nodes.forEach(node=>{node.canvasX-=minX;node.canvasY-=minY;});return source;}
 function addWorkflowNode(workflowNodeId,x,y){const workflow=workflowNodeLibrary().find(item=>item.id===workflowNodeId);if(!workflow)return;pasteGraphFragment(normalizeGraphFragment(workflow.graph),{x,y},`已展开工作流节点：${workflow.title}`);}
 function selectedGraphFragment(){const graph=store.snapshot(),ids=new Set(ui.selectedNodes),nodes=graph.nodes.filter(node=>ids.has(node.id));return {nodes,links:graph.links.filter(link=>ids.has(link.fromNode)&&ids.has(link.toNode))};}
 function copySelectedNodes(){const fragment=selectedGraphFragment();if(!fragment.nodes.length){document.querySelector("#footer-message").textContent="请先选择要复制的节点";return false;}const minX=Math.min(...fragment.nodes.map(node=>node.canvasX)),minY=Math.min(...fragment.nodes.map(node=>node.canvasY));ui.clipboard={nodes:fragment.nodes.map(node=>({...clone(node),canvasX:node.canvasX-minX,canvasY:node.canvasY-minY})),links:clone(fragment.links)};document.querySelector("#footer-message").textContent=`已复制 ${fragment.nodes.length} 个节点和 ${fragment.links.length} 条内部连线`;
   navigator.clipboard?.writeText(JSON.stringify({schema:"MengGodWorkflowFragment",...ui.clipboard})).catch(()=>{});return true;
 }
-function pasteGraphFragment(fragment,position,message=null){if(!fragment?.nodes?.length)return false;const source=clone(fragment),ids=new Map(),created=[];source.nodes.forEach(node=>ids.set(node.id,id("paste")));store.checkpoint();source.nodes.forEach(node=>{const oldId=node.id;node.id=ids.get(oldId);node.canvasX=Math.round(position.x+node.canvasX);node.canvasY=Math.round(position.y+node.canvasY);created.push(node.id);store.graph.nodes.push(node);if(node.typeId==="io.output")store.graph.outputNodeId=node.id;});source.links.forEach(link=>{const fromNode=ids.get(link.fromNode),toNode=ids.get(link.toNode);if(fromNode&&toNode)store.graph.links.push({...link,fromNode,toNode});});resolveTypes(store.graph);pruneInvalidLinks(store.graph);store.graph.previewRevision=++store.previewRevision;store.graph.revision++;ui.selectedNodes=new Set(created);ui.selected=created[0]||null;store.emit();document.querySelector("#footer-message").textContent=message||`已粘贴 ${created.length} 个节点`;return true;}
+function pasteGraphFragment(fragment,position,message=null){if(!fragment?.nodes?.length)return false;if(fragment.nodes.some(n=>!supportsStage(n.typeId,activeStage))){document.querySelector("#footer-message").textContent="所选内容含有其他着色阶段专用节点";return false;}const source=clone(fragment),ids=new Map(),created=[];source.nodes.forEach(node=>ids.set(node.id,id("paste")));store.checkpoint();source.nodes.forEach(node=>{const oldId=node.id;node.id=ids.get(oldId);node.canvasX=Math.round(position.x+node.canvasX);node.canvasY=Math.round(position.y+node.canvasY);created.push(node.id);store.graph.nodes.push(node);if(node.typeId===stages[activeStage].output)store.graph.outputNodeId=node.id;});source.links.forEach(link=>{const fromNode=ids.get(link.fromNode),toNode=ids.get(link.toNode);if(fromNode&&toNode)store.graph.links.push({...link,fromNode,toNode});});resolveTypes(store.graph);pruneInvalidLinks(store.graph);store.graph.previewRevision=++store.previewRevision;store.graph.revision++;ui.selectedNodes=new Set(created);ui.selected=created[0]||null;store.emit();document.querySelector("#footer-message").textContent=message||`已粘贴 ${created.length} 个节点`;return true;}
 function pasteClipboard(position){if(!ui.clipboard?.nodes?.length){document.querySelector("#footer-message").textContent="剪贴板中没有可粘贴的节点";return false;}return pasteGraphFragment(ui.clipboard,position);}
 function cutSelectedNodes(){if(!copySelectedNodes())return;const ids=[...ui.selectedNodes];ui.selectedNodes.clear();ui.selected=null;store.checkpoint();store.graph.nodes=store.graph.nodes.filter(node=>!ids.includes(node.id));store.graph.links=store.graph.links.filter(link=>!ids.includes(link.fromNode)&&!ids.includes(link.toNode));if(ids.includes(store.graph.outputNodeId))store.graph.outputNodeId=null;store.graph.previewRevision=++store.previewRevision;store.graph.revision++;store.emit();document.querySelector("#footer-message").textContent=`已剪切 ${ids.length} 个节点`;}
 function saveSelectionAsWorkflowNode(requestedTitle=null){const fragment=selectedGraphFragment();if(!fragment.nodes.length){document.querySelector("#footer-message").textContent="请先选择节点";return false;}const title=String(requestedTitle||`工作流节点 ${workflowNodeLibrary().filter(item=>!item.preset).length+1}`).trim()||"工作流节点";const custom={id:`subgraph_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,title,preset:false,description:"用户保存的组合节点",graph:clone(fragment)};const items=workflowNodeLibrary().filter(item=>!item.preset);items.push(custom);localStorage.setItem("workflow.subgraphNodes",JSON.stringify(items));renderCatalog("");document.querySelector("#node-search").value="";document.querySelector("#footer-message").textContent=`已保存工作流节点：${custom.title}（${fragment.nodes.length} 个节点）`;return true;}
@@ -558,7 +564,7 @@ function renderGraph(graph) {
   graph.nodes.forEach(node => {
     const d = nodeDef(node), element = document.createElement("article"); element.className = `workflow-node${ui.selectedNodes.has(node.id) ? " selected" : ""}`; element.dataset.id = node.id; element.dataset.type = node.typeId; element.style.left = `${node.canvasX}px`; element.style.top = `${node.canvasY}px`;
     const showPreview=d.outputs.length && node.properties.previewEnabled;
-    element.innerHTML = `<header class="node-header"><span class="type-icon"></span><span>${node.title}</span><span class="node-id">${node.id}</span></header>${showPreview ? `<canvas class="node-preview" width="112" height="112" title="节点输出预览"></canvas>` : ""}<div class="node-body"></div>`;
+    element.innerHTML = `<header class="node-header"><span class="type-icon"></span><span>${node.title||d.title}</span><span class="node-id">${node.id}</span></header>${showPreview ? `<canvas class="node-preview" width="112" height="112" title="节点输出预览"></canvas>` : ""}<div class="node-body"></div>`;
     element.addEventListener("pointerdown", event => {
       if (event.button !== 0 || isNodeInteractiveTarget(event.target)) return;
       beginDrag(event, node);
@@ -736,7 +742,8 @@ function previewValue(graph, nodeId, socket, uv, memo = new Map(), stack = new S
   const node=graph.nodes.find(n=>n.id===nodeId), d=node && nodeDef(node); if(!node || !d) return {value:0,type:"FLOAT"}; stack.add(nodeId);
   const input=(name)=>{ const port=d.inputs.find(p=>p.name===name), link=graph.links.find(l=>l.toNode===nodeId&&l.toSocket===name); return link ? previewValue(graph,link.fromNode,link.fromSocket,uv,memo,stack).value : fallback(port?.type||"FLOAT"); };
   let value=fallback(d.outputs[0]?.type||"FLOAT"), type=d.outputs[0]?.type||"FLOAT"; if(type === "ANY") type="FLOAT";
-  if(node.typeId === "input.uv") value=uv;
+  if(node.typeId === "input.position") value=uv.map((v,i)=>(v-.5)*(i?180:360));
+  else if(node.typeId === "input.uv") value=uv;
   else if(node.typeId === "input.time" || node.typeId === "io.input") value=Number(node.properties.defaultValue ?? 0) || 0;
   else if(node.typeId === "math.constant") {
     if(node.properties.valueType==="BOOL"||d.outputs[0]?.type==="BOOL") value=String(node.properties.value).toLowerCase()==="true";
@@ -839,10 +846,11 @@ function previewLoopIndexDeclarations(graph,node) {
 }
 function previewFragmentSource(graph, node, output) {
   const definition=nodeDef(node),compiled=compileGraphExpression(graph,node,output.name),expression=compiled.expression;
-  const uniforms=graphInputs(graph).map(input=>`uniform float ${input.name};`).join("\n");
+  const uniforms=graphInputs(graph).map(input=>`uniform ${glslType(input.type)} ${input.name};`).join("\n");
   const textures=graphTextureInputs(graph).map(input=>`uniform sampler2D ${input.name};`).join("\n");
   return `#version 300 es
 precision highp float;
+precision highp int;
 in vec2 v_uv;
 out vec4 fragColor;
 uniform float u_time;
@@ -852,17 +860,23 @@ ${textureSamplingFunctions(graph)}
 ${shaderLibrary()}
 ${customHelpers(graph)}
 void main() {
+    vec2 a_position=(v_uv-0.5)*vec2(360.0,180.0);
 ${compiled.statements.join("\n")}
     fragColor = ${previewColorExpression(output.type === "ANY" ? "FLOAT" : output.type, expression)};
 }`;
 }
-function compilePreviewProgram(gl, source) {
-  const compile=(type, code)=>{const shader=gl.createShader(type);gl.shaderSource(shader,code);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(shader)||"GLSL 编译失败");return shader;};
-  const vertex=compile(gl.VERTEX_SHADER,`#version 300 es
+function compilePreviewProgram(gl,source,vertexSource=null){
+  const shaders=[];let program=null;
+  const compile=(type,code)=>{const shader=gl.createShader(type);shaders.push(shader);gl.shaderSource(shader,code);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(shader)||'GLSL 编译失败');return shader;};
+  try{
+    const vertex=compile(gl.VERTEX_SHADER,vertexSource||`#version 300 es
 in vec2 position;
 out vec2 v_uv;
-void main() { v_uv = position * 0.5 + 0.5; gl_Position = vec4(position, 0.0, 1.0); }`);
-  const fragment=compile(gl.FRAGMENT_SHADER,source),program=gl.createProgram();gl.attachShader(program,vertex);gl.attachShader(program,fragment);gl.linkProgram(program);gl.deleteShader(vertex);gl.deleteShader(fragment);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program)||"GLSL 链接失败");return program;
+void main(){v_uv=position*0.5+0.5;gl_Position=vec4(position,0.0,1.0);}`);
+    const fragment=compile(gl.FRAGMENT_SHADER,source);program=gl.createProgram();gl.attachShader(program,vertex);gl.attachShader(program,fragment);gl.linkProgram(program);
+    if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program)||'GLSL 链接失败');
+    return program;
+  }catch(error){if(program)gl.deleteProgram(program);throw error;}finally{shaders.forEach(shader=>gl.deleteShader(shader));}
 }
 // One shared offscreen WebGL context prevents browser context eviction when a large graph has
 // dozens of visible preview nodes.  Finished GPU frames are copied to ordinary 2D canvases.
@@ -892,7 +906,7 @@ function drawNodePreviews(graph) {
       const location=gl.getAttribLocation(program,"position");gl.enableVertexAttribArray(location);gl.vertexAttribPointer(location,2,gl.FLOAT,false,0,0);
       const time=previewTimeValue(graph);
       const timeLocation=gl.getUniformLocation(program,"u_time");if(timeLocation!==null)gl.uniform1f(timeLocation,time);
-      graphInputs(graph).forEach(input=>{const location=gl.getUniformLocation(program,input.name);if(location!==null){if(input.type==="BOOL")gl.uniform1i(location,input.defaultValue?1:0);else gl.uniform1f(location,input.defaultValue);}});
+      graphInputs(graph).forEach(input=>uploadPreviewParameter(gl,program,input));
       graphTextureInputs(graph).forEach((input,index)=>{const textureNode=graph.nodes.find(item=>item.id===input.nodeId),location=gl.getUniformLocation(program,input.name),texture=previewTexture(gl,textureNode),aspectLocation=gl.getUniformLocation(program,textureAspectUniformName(input.name));gl.activeTexture(gl.TEXTURE0+index);gl.bindTexture(gl.TEXTURE_2D,texture.texture);if(location)gl.uniform1i(location,index);if(aspectLocation)gl.uniform2f(aspectLocation,texture.width,texture.height);});
       gl.viewport(0,0,surface.width,surface.height);gl.disable(gl.BLEND);gl.disable(gl.SCISSOR_TEST);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
       const context=canvas.getContext("2d"),scale=Math.min(canvas.width/surface.width,canvas.height/surface.height),drawWidth=surface.width*scale,drawHeight=surface.height*scale;
@@ -912,22 +926,31 @@ window.addEventListener("pointermove", e => { if(ui.selectionBox){const end=toWo
 window.addEventListener("pointerup", e => { if(ui.selectionBox){const end=toWorld(e.clientX,e.clientY),start=ui.selectionBox.start,left=Math.min(start.x,end.x),right=Math.max(start.x,end.x),top=Math.min(start.y,end.y),bottom=Math.max(start.y,end.y);ui.selectionBox.box.remove();ui.selectionBox=null;ui.selectedNodes.clear();store.snapshot().nodes.forEach(node=>{if(node.canvasX<right&&node.canvasX+206>left&&node.canvasY<bottom&&node.canvasY+150>top)ui.selectedNodes.add(node.id);});ui.selected=[...ui.selectedNodes][0]||null;renderGraph(store.snapshot());renderInspector(store.snapshot());return;}if(ui.view.pan){const backgroundPointer=ui.backgroundPointer;ui.view.pan=null;ui.backgroundPointer=null;shell.classList.remove("panning");if(backgroundPointer&&Math.hypot(e.clientX-backgroundPointer.x,e.clientY-backgroundPointer.y)<4){ui.selectedNodes.clear();ui.selected=null;renderGraph(store.snapshot());renderInspector(store.snapshot());}return;} ui.drag = null; const target = document.elementFromPoint(e.clientX, e.clientY); if(ui.disconnectWire){const link=ui.disconnectWire.link;store.command("DISCONNECT",{link});ui.disconnectWire=null;clearCompatible();return;} if (!ui.pendingWire) return; if (target?.classList.contains("port") && target.dataset.direction === "input" && compatible(ui.pendingWire.type,target.dataset.valueType)) store.command("CONNECT", { link: { fromNode: ui.pendingWire.fromNode, fromSocket: ui.pendingWire.fromSocket, toNode: target.dataset.nodeId, toSocket: target.dataset.socket } }); ui.pendingWire = null; clearCompatible(); drawWires(store.snapshot()); });
 window.addEventListener("keydown", e => { const editing=["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)||document.activeElement.isContentEditable;if(editing)return;const modifier=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(modifier&&key==="c"){e.preventDefault();copySelectedNodes();return;}if(modifier&&key==="x"){e.preventDefault();cutSelectedNodes();return;}if(modifier&&key==="v"){e.preventDefault();const p=ui.contextPastePosition||toWorld(shell.getBoundingClientRect().left+shell.clientWidth/2,shell.getBoundingClientRect().top+shell.clientHeight/2);pasteClipboard(p);return;}if(modifier&&key==="z"){e.preventDefault();const changed=e.shiftKey?store.redo():store.undo();if(changed){ui.selectedNodes.clear();ui.selected=null;document.querySelector("#footer-message").textContent=e.shiftKey?"已恢复操作":"已撤销操作";}return;}if(modifier&&key==="y"){e.preventDefault();if(store.redo()){ui.selectedNodes.clear();ui.selected=null;document.querySelector("#footer-message").textContent="已恢复操作";}return;}if (e.key === "Delete" && ui.selectedNodes.size) { e.preventDefault();const ids=[...ui.selectedNodes];ui.selectedNodes.clear();ui.selected=null;store.removeNodes(ids);renderInspector(store.snapshot()); } });
 function projectConfig(){try{const raw=sessionStorage.getItem("workflow.projectConfig")||localStorage.getItem("workflow.projectConfig")||'{"id":"default","title":"Untitled Workflow","className":"GeneratedCombatLayerPlugin","shaderDir":"data/shaders/generated","previewWidth":1024,"previewHeight":1024}';if(!sessionStorage.getItem("workflow.projectConfig"))sessionStorage.setItem("workflow.projectConfig",raw);const config=JSON.parse(raw),resolution=previewResolution(config);return {...config,previewWidth:resolution.width,previewHeight:resolution.height};}catch(_){return {id:"default",title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated",previewWidth:1024,previewHeight:1024};}}
-function loadCurrentGraph(){try { const raw=sessionStorage.getItem("workflow.graph")||localStorage.getItem("workflow.graph")||"null";if(!sessionStorage.getItem("workflow.graph")&&raw!=="null")sessionStorage.setItem("workflow.graph",raw);const graph=JSON.parse(raw); return graph?.nodes && graph?.links ? graph : starterGraph(); } catch (_) { return starterGraph(); }}
+function loadCurrentGraph(){if(activeStage==="vertex")return currentVertexTransform().graph;try { const raw=sessionStorage.getItem("workflow.graph")||localStorage.getItem("workflow.graph")||"null";if(!sessionStorage.getItem("workflow.graph")&&raw!=="null")sessionStorage.setItem("workflow.graph",raw);const graph=JSON.parse(raw); return graph?.nodes && graph?.links ? graph : starterGraph(); } catch (_) { return starterGraph(); }}
 function validateImportedWorkflow(value){
   if(!value||typeof value!=="object")throw new Error("根对象必须是 JSON 对象");
   if(Number(value.schemaVersion)!==1)throw new Error("schemaVersion 必须为 1");
   if(!value.project||typeof value.project!=="object")throw new Error("缺少 project 对象");
   const graph=value.graph;
   if(!graph||!Array.isArray(graph.nodes)||!Array.isArray(graph.links))throw new Error("graph 必须包含 nodes 和 links 数组");
+  validateStageGraph(graph,"fragment");
+  const transform=normalizeTransform(value.vertexTransform||defaultVertexTransform());
+  transform.graph=migrateVertexGraph(transform.graph,graph);validateStageGraph(transform.graph,"vertex");
+  return {schemaVersion:1,project:bridgeProjectConfig(value.project,{...newWorkflowConfig(),title:"Imported Workflow"}),graph:clone(graph),vertexTransform:transform};
+}
+function validateStageGraph(graph,stage){
+  if(!Array.isArray(graph.nodes)||!Array.isArray(graph.links))throw new Error("工作流必须包含 nodes 与 links");
   migrateBranchMetadata(graph);
-  const ids=new Set(),types=new Set(catalog.map(node=>node.typeId));
+  const ids=new Set(),types=new Set(catalog.filter(n=>supportsStage(n.typeId,stage)).map(node=>node.typeId));
   graph.nodes.forEach(node=>{
     if(!node.id||ids.has(node.id))throw new Error(`节点 ID 重复或为空：${node.id||"<empty>"}`);
     if(!types.has(node.typeId))throw new Error(`未知节点类型：${node.typeId}`);
     if(!Number.isFinite(Number(node.canvasX))||!Number.isFinite(Number(node.canvasY)))throw new Error(`节点坐标无效：${node.id}`);
-    ids.add(node.id);
+    node.properties ||= {};ids.add(node.id);
   });
+  const destinations=new Set();
   graph.links.forEach(link=>{
+    const destination=JSON.stringify([link.toNode,link.toSocket]);if(destinations.has(destination))throw new Error("同一输入端口存在重复连线");destinations.add(destination);
     const from=graph.nodes.find(node=>node.id===link.fromNode),to=graph.nodes.find(node=>node.id===link.toNode);
     if(!from||!to||!link.fromSocket||!link.toSocket)throw new Error("存在指向未知节点或端口不完整的连线");
     const fromPort=nodeDef(from)?.outputs.find(port=>port.name===link.fromSocket),toPort=nodeDef(to)?.inputs.find(port=>port.name===link.toSocket);
@@ -935,18 +958,34 @@ function validateImportedWorkflow(value){
     if(!compatible(fromPort.type,toPort.type))throw new Error(`连线类型不匹配：${typeLabel(fromPort.type)} 不能连接到 ${typeLabel(toPort.type)}`);
     if(isInvalidBranchConnection(graph,link))throw new Error("分支内部的输出只能连接同一分支节点，或通过变量节点带出。");
   });
-  return {schemaVersion:1,project:bridgeProjectConfig(value.project,{...newWorkflowConfig(),title:"Imported Workflow"}),graph:clone(graph),vertexTransform:normalizeTransform(value.vertexTransform||defaultVertexTransform())};
+  return graph;
 }
 function importWorkflowFile(file){const status=document.querySelector("#import-status");file.text().then(text=>{const imported=validateImportedWorkflow(JSON.parse(text));openWorkflow(imported.project,imported.graph,false,imported.vertexTransform);saveWorkflow();status.textContent=`导入成功：${imported.project.title}（${imported.graph.nodes.length} 节点，${imported.graph.links.length} 连线）`;document.querySelector("#footer-message").textContent=`已导入工作流：${imported.project.title}`;}).catch(error=>{status.textContent=`导入失败：${error.message||error}`;});}
-function persistCurrentGraph(){sessionStorage.setItem("workflow.graph",JSON.stringify(store.snapshot()));}
+function persistCurrentGraph(){persistActiveGraph(store.snapshot());}
 function defaultVertexTransform(){return {vertices:[[-180,-90],[180,-90],[-180,90],[180,90]],tx:0,ty:0,sx:1,sy:1,rotation:0};}
-function currentVertexTransform(){return normalizeTransform(JSON.parse(sessionStorage.getItem("workflow.vertexTransform")||"null")||defaultVertexTransform());}
+function currentVertexTransform(){const t=normalizeTransform(JSON.parse(sessionStorage.getItem("workflow.vertexTransform")||"null")||defaultVertexTransform());t.graph=migrateVertexGraph(t.graph,currentFragmentGraph());return t;}
+function currentFragmentGraph(){const raw=sessionStorage.getItem('workflow.graph')||localStorage.getItem('workflow.graph');return raw?JSON.parse(raw):starterGraph();}
+function stageStarterGraph(){return activeStage==='vertex'?migrateVertexGraph(normalizeTransform().graph):starterGraph();}
+function persistActiveGraph(graph){if(activeStage==='fragment')sessionStorage.setItem('workflow.graph',JSON.stringify(graph));else{const t=currentVertexTransform();t.graph=graph;sessionStorage.setItem('workflow.vertexTransform',JSON.stringify(t));}}
+function switchStage(stage){
+  if(!stages[stage]||stage===activeStage)return;
+  persistActiveGraph(store.snapshot());
+  stageHistory.set(activeStage,{undo:store.undoStack,redo:store.redoStack,selected:[...ui.selectedNodes],view:{x:ui.view.x,y:ui.view.y,zoom:ui.view.zoom}});
+  activeStage=stage;const saved=stageHistory.get(stage);
+  ui.selectedNodes=new Set(saved?.selected||[]);ui.selected=[...ui.selectedNodes][0]||null;ui.pendingWire=null;ui.disconnectWire=null;ui.drag=null;ui.contextPastePosition=null;
+  Object.assign(ui.view,saved?.view||{x:0,y:0,zoom:1}, {pan:null});
+  store.graph=loadCurrentGraph();store.undoStack=saved?.undo||[];store.redoStack=saved?.redo||[];store.graph.previewRevision=++store.previewRevision;
+  const url=new URL(location.href);url.searchParams.set('stage',stage);history.replaceState(null,'',url);
+  updateStageUI();updateView();store.emit();
+}
+function updateStageUI(){document.title=stages[activeStage].title+' · Workflow Shader';document.body.dataset.stage=activeStage;document.querySelectorAll('a[data-stage]').forEach(a=>a.classList.toggle('active',a.dataset.stage===activeStage));document.querySelector('#vertex-settings').hidden=activeStage!=='vertex';renderCatalog(document.querySelector('#node-search').value);}
+
 function workflowLibrary(){try{return JSON.parse(localStorage.getItem("workflow.library")||"[]");}catch(_){return[];}}
 function newWorkflowConfig(){return {id:`workflow_${Date.now()}`,title:"Untitled Workflow",className:"GeneratedCombatLayerPlugin",shaderDir:"data/shaders/generated",previewWidth:1024,previewHeight:1024};}
-function persistCurrentWorkflow(silent=true){const config=projectConfig(),id=String(config.id||"");if(!id)return;const library=workflowLibrary(),index=library.findIndex(item=>item.id===id);if(index<0)return;library[index]={id,config:clone(config),graph:store.snapshot(),vertexTransform:currentVertexTransform()};localStorage.setItem("workflow.library",JSON.stringify(library));sessionStorage.setItem("workflow.graph",JSON.stringify(store.snapshot()));if(!silent){renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}}
+function persistCurrentWorkflow(silent=true){const config=projectConfig(),id=String(config.id||"");if(!id)return;const library=workflowLibrary(),index=library.findIndex(item=>item.id===id);if(index<0)return;library[index]={id,config:clone(config),graph:currentFragmentGraph(),vertexTransform:currentVertexTransform()};localStorage.setItem("workflow.library",JSON.stringify(library));persistCurrentGraph();if(!silent){renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}}
 // Opening must be read-only against the workflow library.  Persisting the outgoing in-memory
 // draft here used to overwrite a saved entry while the user was trying to load it.
-function openWorkflow(config,graph,closeDialog=true,vertexTransform=null){const nextConfig=clone(config),nextGraph=clone(graph),transform=vertexTransform||defaultVertexTransform();sessionStorage.setItem("workflow.projectConfig",JSON.stringify(nextConfig));sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));sessionStorage.setItem("workflow.graph",JSON.stringify(nextGraph));store.reset(nextGraph);ui.selected=null;ui.selectedNodes.clear();if(closeDialog)document.querySelector("#workflow-dialog").close();renderWorkflowLibrary();}
+function openWorkflow(config,graph,closeDialog=true,vertexTransform=null){const nextConfig=clone(config),nextGraph=clone(graph),transform=normalizeTransform(vertexTransform||defaultVertexTransform());transform.graph=migrateVertexGraph(transform.graph,nextGraph);stageHistory.clear();sessionStorage.setItem("workflow.projectConfig",JSON.stringify(nextConfig));sessionStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));localStorage.setItem("workflow.vertexTransform",JSON.stringify(transform));sessionStorage.setItem("workflow.graph",JSON.stringify(nextGraph));ui.selected=null;ui.selectedNodes.clear();Object.assign(ui.view,{x:0,y:0,zoom:1});store.reset(activeStage==="vertex"?transform.graph:nextGraph);updateView();if(closeDialog)document.querySelector("#workflow-dialog").close();renderWorkflowLibrary();}
 function loadMingGodExample(closeDialog=true){const config={id:`workflow_${Date.now()}`,title:"明神印记旋涡",className:"Meng_MingGodSignPlugin",shaderDir:"data/shaders/meng",previewWidth:1024,previewHeight:1024};openWorkflow(config,mingGodSignGraph(),closeDialog);saveWorkflow();document.querySelector("#footer-message").textContent="已创建并保存工作流：明神印记旋涡";}
 async function loadInstanceExample(){try{const response=await fetch('./examples/instanced-wave.workflow.json');if(!response.ok)throw new Error('示例加载失败');const value=validateImportedWorkflow(await response.json());value.project.id='instance_'+Date.now();openWorkflow(value.project,value.graph,true,value.vertexTransform);saveWorkflow();}catch(error){document.querySelector('#footer-message').textContent=error.message;}}
 function renderWorkflowLibrary(){
@@ -956,18 +995,20 @@ function renderWorkflowLibrary(){
   if(examples){examples.innerHTML="";const row=document.createElement("div");row.className="saved-workflow";row.innerHTML='<span class="saved-workflow-title">明神印记旋涡<small>Meng_MingGodSignPlugin</small></span><button data-open-example>载入</button>';row.querySelector("[data-open-example]").addEventListener("click",()=>loadMingGodExample());examples.append(row);}
   if(examples){const row=document.createElement('div');row.className='saved-workflow';row.innerHTML='<span class="saved-workflow-title">实例波动四边形<small>顶点波动 + 独立实例颜色与波幅</small></span><button id="open-instance-example">创建</button>';row.querySelector('button').onclick=loadInstanceExample;examples.append(row);}
 }
-function saveWorkflow(){const config=projectConfig(),graph=store.snapshot(),vertexTransform=currentVertexTransform(),id=config.id||`workflow_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;config.id=id;sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));sessionStorage.setItem("workflow.graph",JSON.stringify(graph));localStorage.setItem("workflow.vertexTransform",JSON.stringify(vertexTransform));const library=workflowLibrary().filter(item=>item.id!==id);library.push({id,config:clone(config),graph:clone(graph),vertexTransform:clone(vertexTransform)});localStorage.setItem("workflow.library",JSON.stringify(library));renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}
+function saveWorkflow(){persistCurrentGraph();const config=projectConfig(),graph=currentFragmentGraph(),vertexTransform=currentVertexTransform(),id=config.id||`workflow_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;config.id=id;sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));sessionStorage.setItem("workflow.graph",JSON.stringify(graph));localStorage.setItem("workflow.vertexTransform",JSON.stringify(vertexTransform));const library=workflowLibrary().filter(item=>item.id!==id);library.push({id,config:clone(config),graph:clone(graph),vertexTransform:clone(vertexTransform)});localStorage.setItem("workflow.library",JSON.stringify(library));renderWorkflowLibrary();document.querySelector("#footer-message").textContent=`已保存：${config.title}`;}
 function download(name,source){const blob=new Blob([source],{type:"text/plain;charset=utf-8"}),link=Object.assign(document.createElement("a"),{href:URL.createObjectURL(blob),download:name});link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
-const {zeroFor,constantExpression,inputUniformName,graphInputs,javaIdentifier,validJavaClassName,graphTextureInputs,expressionFor,shaderLibrary,activeGraphNodeIds,extractShaderHelper,shaderLibraryFor,customFunctionSource,customHelpers,glslType,compileGraphExpression,branchVariableCode,graphFinalNode,fragmentSource} = createFragmentCompiler({nodeDef,typeKey,typeLabel,variableBranchOwner,customParameters,customFunctionName,textureSampleName,textureAspectUniformName,textureSamplingFunctions});
-function hasConnectedFragmentOutput(graph) { return graph.nodes.some(node=>node.typeId==="io.output"&&graph.links.some(link=>link.toNode===node.id&&link.toSocket==="color"&&graph.nodes.some(source=>source.id===link.fromNode))); }
+const {vertexStage,zeroFor,constantExpression,inputUniformName,graphInputs,javaIdentifier,validJavaClassName,graphTextureInputs,expressionFor,shaderLibrary,activeGraphNodeIds,extractShaderHelper,shaderLibraryFor,customFunctionSource,customHelpers,glslType,compileGraphExpression,branchVariableCode,graphFinalNode,fragmentSource} = createWorkflowCompiler({nodeDef,typeKey,typeLabel,variableBranchOwner,customParameters,customFunctionName,textureSampleName,textureAspectUniformName,textureSamplingFunctions});
+function hasConnectedFragmentOutput(graph) { const node=graphFinalNode(graph);return node?.typeId==="io.output"&&graph.links.some(link=>link.toNode===node.id&&link.toSocket==="color"&&graph.nodes.some(source=>source.id===link.fromNode)); }
 function exportReadiness(graph, config=projectConfig()) {
+  graph=activeStage==="fragment"?graph:currentFragmentGraph();
   if(!hasConnectedFragmentOutput(graph)) return {ready:false, message:"未连接片段输出：请将结果连接到“片段输出”的 color 输入端口。"};
   try {
     if(!validJavaClassName(config.className)) throw new Error(`Java 类名无效：${config.className}。请使用非关键字的字母、数字或下划线名称，且不能以数字开头。`);
-    validateGraphProperties(graph);
-    validateRuntimeInputs(graph);
+    const vertex=currentVertexTransform().graph;validateStageGraph(graph,"fragment");validateStageGraph(vertex,"vertex");
+    validateGraphProperties(graph);validateGraphProperties(vertex);
+    validateRuntimeInputs({nodes:[...graph.nodes,...vertex.nodes],links:[]});
     runtimeSources(graph,config);
-    return {ready:true, message:"片段输出已连接，参数校验通过，可导出运行文件。"};
+    return {ready:true, message:"顶点与片段输出已连接，跨阶段参数校验通过，可导出运行文件。"};
   } catch(error) {
     return {ready:false, message:`导出前校验失败：${error.message||error}`};
   }
@@ -995,10 +1036,10 @@ function validateRuntimeInputs(graph){
     byName.set(declaration.name,declaration);
   });
 }
-function runtimeSources(graph=store.snapshot(),config=projectConfig()){return buildRuntimeSources({config,graph,transform:currentVertexTransform(),inputs:graphInputs(graph),textures:graphTextureInputs(graph),fragment:fragmentSource(graph),runtimeFiles});}
+function runtimeSources(graph=currentFragmentGraph(),config=projectConfig()){if(activeStage==='vertex')graph=currentFragmentGraph();const transform=currentVertexTransform(),all={nodes:[...graph.nodes,...transform.graph.nodes],links:[]};return buildRuntimeSources({config,graph,transform,inputs:graphInputs(all),textures:graphTextureInputs(all),fragment:fragmentSource(graph),vertexProgram:vertexStage(transform.graph),runtimeFiles});}
 function exportRuntime(strict=false){const graph=store.snapshot(),readiness=renderCompileStatus(graph);if(!readiness.ready){if(strict===true)throw new Error(readiness.message);return null;}saveWorkflow();lastGeneratedSources=runtimeSources(graph);downloadZip(projectConfig().className+'.zip',Object.values(lastGeneratedSources));workflowBridge.publish(graph);document.querySelector('#footer-message').textContent='已导出实例化运行时 ZIP';return lastGeneratedSources;}
 
-document.querySelector("#node-search").addEventListener("input", e => renderCatalog(e.target.value)); document.querySelector("#new-graph").addEventListener("click", () => { ui.selected = null; store.reset(); });
+document.querySelector("#node-search").addEventListener("input", e => renderCatalog(e.target.value)); document.querySelector("#new-graph").addEventListener("click", () => { ui.selected = null;ui.selectedNodes.clear(); store.reset(); });
 document.querySelector("#add-demo").addEventListener("click", addDemo);document.querySelector("#save-workflow").addEventListener("click",saveWorkflow);document.querySelector("#export-runtime").addEventListener("click",exportRuntime);
 document.querySelector("#import-workflow").addEventListener("click",()=>{document.querySelector("#import-status").textContent="尚未选择文件。";document.querySelector("#import-dialog").showModal();});
 document.querySelector("#close-import-dialog").addEventListener("click",()=>document.querySelector("#import-dialog").close());
@@ -1020,7 +1061,7 @@ bridgePromptButton.addEventListener("click",async()=>{bridgePromptBox.value=awai
 document.querySelector("#close-workflow-dialog").addEventListener("click",()=>document.querySelector("#workflow-dialog").close());
 document.querySelector("#create-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,blendMode:document.querySelector("#blend-mode").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value});openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
 document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:projectConfig().id,title:document.querySelector("#workflow-title").value,className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,blendMode:document.querySelector("#blend-mode").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value},projectConfig());sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));store.graph.previewRevision=++store.previewRevision;store.emit();saveWorkflow();renderWorkflowLibrary();});
-store.subscribe(graph => { sessionStorage.setItem("workflow.graph",JSON.stringify(graph)); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph); workflowBridge.publish(graph); });
+store.subscribe(graph => { persistActiveGraph(graph); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph); workflowBridge.publish(graph); });
 setInterval(() => workflowBridge.pull(), 250);
 setInterval(() => workflowBridge.publish(store.snapshot()), 2000);
 function addDemo() {
@@ -1030,3 +1071,53 @@ function addDemo() {
 }
 renderCatalog();
 renderCompileStatus(store.snapshot());
+
+document.querySelectorAll('a[data-stage]').forEach(a=>a.addEventListener('click',event=>{event.preventDefault();switchStage(a.dataset.stage);}));
+updateStageUI();
+
+function uploadPreviewParameter(gl,program,p,value=p.defaultValue){
+  const location=gl.getUniformLocation(program,p.name);if(location===null)return;
+  if(p.type==='BOOL')gl.uniform1i(location,value===true||String(value)==='true'?1:0);
+  else if(p.type==='INT')gl.uniform1i(location,Number(value)||0);
+  else if(p.type==='UINT')gl.uniform1ui(location,Number(value)||0);
+  else if(/^VEC[234]$/.test(p.type)){const size=Number(p.type.slice(-1)),values=Array.isArray(value)?value:String(value).split(/[\s,]+/).filter(Boolean).map(Number);gl['uniform'+size+'fv'](location,Array.from({length:size},(_,i)=>Number(values[i]??values[0]??0)));}
+  else gl.uniform1f(location,Number(value)||0);
+}
+function drawGeometryPreview(canvas,{count,selected,time,overrides}){
+  if(!previewRenderer)throw new Error('当前浏览器不支持 WebGL2');
+  const transform=currentVertexTransform(),g=transform.graph,fragment=currentFragmentGraph(),vertex=vertexStage(g),all={nodes:[...fragment.nodes,...g.nodes],links:[]};
+  validateStageGraph(g,'vertex');validateRuntimeInputs(all);
+  const params=graphInputs(all),uniforms=params.map(p=>'uniform '+glslType(p.type)+' '+p.name+';').join('\n');
+  const source=`#version 300 es
+precision highp float;
+precision highp int;
+in vec2 position;
+out vec2 v_uv;
+uniform float u_time;
+uniform vec2 wf_preview_extent;
+${uniforms}
+${vertex.helpers}
+mat2 wf_rotate(float a){float c=cos(a),s=sin(a);return mat2(c,s,-s,c);}
+void main(){
+ vec2 a_position=position;
+ v_uv=vec2((gl_VertexID & 1)!=0?1.0:0.0,gl_VertexID>=2?1.0:0.0);
+ ${vertex.lines}
+ v_uv=${vertex.uv};
+ vec2 local=wf_rotate(${Number(transform.rotation*Math.PI/180).toFixed(8)})*(${vertex.position}*vec2(${Number(transform.sx).toFixed(5)},${Number(transform.sy).toFixed(5)}))+vec2(${Number(transform.tx).toFixed(5)},${Number(transform.ty).toFixed(5)});
+ gl_Position=vec4(local/wf_preview_extent,0.0,1.0);
+}`;
+  const fs=fragmentSource(fragment).replace('#version 420','#version 300 es\nprecision highp float;\nprecision highp int;'),{gl,surface}=previewRenderer;
+  let program,buffer;
+  try{
+    program=compilePreviewProgram(gl,fs,source);buffer=gl.createBuffer();gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(transform.vertices.flat()),gl.STATIC_DRAW);
+    const location=gl.getAttribLocation(program,'position');if(location>=0){gl.enableVertexAttribArray(location);gl.vertexAttribPointer(location,2,gl.FLOAT,false,0,0);}
+    surface.width=canvas.width;surface.height=canvas.height;gl.disable(gl.BLEND);gl.disable(gl.SCISSOR_TEST);gl.clearColor(.04,.065,.1,1);gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(gl.getUniformLocation(program,'u_time'),time);
+    graphTextureInputs(all).forEach((p,i)=>{const n=all.nodes.find(n=>n.id===p.nodeId&&n.typeId==='input.texture'),t=previewTexture(gl,n);gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t.texture);gl.uniform1i(gl.getUniformLocation(program,p.name),i);gl.uniform2f(gl.getUniformLocation(program,textureAspectUniformName(p.name)),t.width,t.height);});
+    const cols=Math.ceil(Math.sqrt(count*canvas.width/canvas.height)),rows=Math.ceil(count/cols),w=Math.floor(canvas.width/cols),h=Math.floor(canvas.height/rows),extent=Math.max(220,...transform.vertices.flat().map(Math.abs));
+    gl.uniform2f(gl.getUniformLocation(program,'wf_preview_extent'),extent*Math.max(1,w/h),extent*Math.max(1,h/w));
+    for(let i=0;i<count;i++){params.forEach(p=>uploadPreviewParameter(gl,program,p,i===selected-1&&p.name in overrides?overrides[p.name]:p.defaultValue));gl.viewport((i%cols)*w,Math.floor(i/cols)*h,w,h);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}
+    const context=canvas.getContext('2d');context.clearRect(0,0,canvas.width,canvas.height);context.drawImage(surface,0,0);const index=Math.min(count,selected)-1;context.strokeStyle='#5ca8ff';context.lineWidth=2;context.strokeRect(index%cols*w+2,canvas.height-(Math.floor(index/cols)+1)*h+2,w-4,h-4);
+  }finally{if(buffer)gl.deleteBuffer(buffer);if(program)gl.deleteProgram(program);}
+}
+installGeometrySettings({getTransform:currentVertexTransform,setTransform:t=>{sessionStorage.setItem('workflow.vertexTransform',JSON.stringify(normalizeTransform(t)));store.graph.previewRevision=++store.previewRevision;store.emit();},getParameters:()=>graphInputs({nodes:[...currentFragmentGraph().nodes,...currentVertexTransform().graph.nodes]}),draw:drawGeometryPreview});

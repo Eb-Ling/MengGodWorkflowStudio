@@ -1,16 +1,18 @@
 # 浏览器编辑器
 
-从仓库根目录运行 node ai-gateway/server.mjs，浏览器打开 http://127.0.0.1:4174/ 。桌面包会自动启动该服务。
+从仓库根目录运行 node ai-gateway/server.mjs，打开 http://127.0.0.1:4174/ 。桌面包自动启动该服务。
 
-- app.js：片段画布、检查器、工作流库与页面桥接适配。
-- compiler/fragment-compiler.js：通过显式依赖注入获得节点定义的纯 GLSL 编译器。
-- compiler/vertex-graph.js：纯类型化顶点 DAG 校验、GLSL 生成和 CPU 几何求值。
-- vertex.js：独立顶点图编辑器、连线选择与拖动布局、单／多实例几何预览。
-- export/：统一参数 ABI、效果类和 shader 生成、无依赖 ZIP 打包。
+- app.js：两阶段共用的 GraphStore、画布、选取、缩放、批量操作、连线、检查器、项目库与桥接。切换阶段保留各自视图与撤销栈。
+- workflow-stages.js：阶段节点与输出契约；旧顶点图迁移到通用 nodes / links 格式。
+- compiler/workflow-compiler.js：两阶段共用的类型化表达式、控制流、自定义节点编译器；只在最终输出适配处区分阶段。
+- compiler/fragment-compiler.js：旧模块路径兼容导出。compiler/vertex-graph.js 保留 1.1 离线 API 兼容与几何配置校验；新编辑器不使用其独立 DAG 编译器。
+- geometry-settings.js：顶点几何与实例预览设置，调用共享图编译结果。
+- controls.css：按钮、菜单、弹窗与下拉框统一主题。
+- export/：跨阶段参数 ABI、效果类与 shader 生成、ZIP 打包。
 - runtime/：导出附带的唯一 GPU 运行时源码。
 
-片段预览使用 WebGL2，顶点预览使用同一顶点图的 CPU 求值；两者均不声称测量游戏 SSBO 性能。GPU 端实际链接、绘制及状态恢复由 build/RenderRegression.java 验证。
+节点与几何预览均使用 WebGL2。几何预览逐实例上传参数，不测量 SSBO 性能。游戏 GLSL 和状态恢复由 build/RenderRegression.java 的真实 OpenGL 上下文验证。
 
-顶点与片段页通过同一标签页的 sessionStorage 共享当前工作流草稿。保存到工作流库后保存在 localStorage；新建项目使用独立默认顶点图，不继承另一个项目的几何。
+草稿分别保存在 sessionStorage 的 workflow.graph 和 workflow.vertexTransform.graph；保存时一起写入 localStorage 项目库。旧 vertex.html 只重定向到 index.html?stage=vertex，不存在第二套画布。
 
 详见根 README、docs/AI_WORKFLOW_FORMAT.md 和 docs/VALIDATION.md。

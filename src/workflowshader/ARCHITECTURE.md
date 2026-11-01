@@ -4,9 +4,9 @@
 
 ## 编辑、编译、导出
 
-片段编辑器持有项目草稿，MCP 桥接只向用户激活的草稿投递命令。切换页面不会重放已经完成的命令。顶点页与片段页在同一标签页内共享草稿，工作流保存同时包含两个阶段。
+同一工作流编辑器按阶段持有两张图及各自的选区、视图、撤销栈，MCP 桥接只向用户激活的草稿投递命令。切换页面不会重放已经完成的命令。顶点页与片段页在同一标签页内共享草稿，工作流保存同时包含两个阶段。
 
-fragment-compiler.js 负责 GLSL 表达式与控制流，vertex-graph.js 负责顶点图类型检查、拓扑求值和局部输出；它们不持有 GL 句柄或 DOM。export/runtime-exporter.js 根据输入声明生成统一 ABI、Java 材质类和两个 shader。
+workflow-stages.js 只定义阶段专用节点和旧格式迁移。compiler/workflow-compiler.js 共用 GLSL 表达式、控制流与自定义节点编译逻辑，末端分别输出 position / uv 或 color，不持有 GL 句柄或 DOM。export/runtime-exporter.js 根据输入声明生成统一 ABI、Java 材质类和两个 shader。
 
 ## 运行时
 
@@ -29,4 +29,4 @@ fragment-compiler.js 负责 GLSL 表达式与控制流，vertex-graph.js 负责�
 
 Java graph 原型通过 WorkflowShaderPlugin 使用同一 WorkflowBatch。它不是浏览器编译器的第二份完整实现，其输入接口仅保留原有 float/vector 共享参数。
 
-当前没有 GPU 粒子模拟、自动跨材质合批、任意网格或 WebGL SSBO 后端。顶点预览是 CPU 几何预览，片段预览是 WebGL2 节点预览。
+当前没有 GPU 粒子模拟、自动跨材质合批、任意网格或 WebGL SSBO 后端。顶点几何和节点预览均使用 WebGL2；几何预览逐实例上传参数，与游戏 SSBO 性能无关。

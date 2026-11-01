@@ -12,9 +12,9 @@ export function parameterLayout(inputs) {
   });
 }
 function readSlot(p){const a=`wf_parameters[gl_InstanceID * WF_PARAMETER_SLOTS + ${p.slot}]`;return p.type==='BOOL'?`${a}.x != 0u`:p.type==='INT'?`int(${a}.x)`:p.type==='UINT'?`${a}.x`:p.type==='FLOAT'?`uintBitsToFloat(${a}.x)`:`uintBitsToFloat(${a}).${'xyzw'.slice(0,Number(p.type.slice(-1)))}`;}
-export function buildRuntimeSources({config,graph,transform,inputs,textures,fragment,runtimeFiles=[]}) {
+export function buildRuntimeSources({config,graph,transform,inputs,textures,fragment,vertexProgram,runtimeFiles=[]}) {
   if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(config.className)||!/^data\/[A-Za-z0-9_/-]+$/.test(config.shaderDir)||config.shaderDir.split('/').includes('..'))throw new Error('类名或 shader 路径无效');
-  const t=normalizeTransform(transform),layout=parameterLayout(inputs),instance=layout.filter(p=>p.scope==='instance'),shared=layout.filter(p=>p.scope==='shared'),slots=Math.max(1,instance.length),vertex=compileVertexGraph(t.graph,layout);
+  const t=normalizeTransform(transform),layout=parameterLayout(inputs),instance=layout.filter(p=>p.scope==='instance'),shared=layout.filter(p=>p.scope==='shared'),slots=Math.max(1,instance.length),vertex=vertexProgram||(Array.isArray(t.graph.links)?(()=>{throw new Error('共享顶点图需要工作流编译器');})():compileVertexGraph(t.graph,layout));
   const C=config.className,fields=[...shared.map(p=>`    private ${types[p.type][0]} shared_${p.name};`),...textures.map(p=>`    private final SpriteAPI texture_${p.parameter};`)].join('\n');
   const args=[...layout.map(p=>`${types[p.type][0]} p_${p.name}`),...textures.map(p=>`SpriteAPI p_${p.parameter}`)];
   const argumentSuffix=args.length?', '+args.join(', '):'',callSuffix=args.length?', '+[...layout.map(p=>'p_'+p.name),...textures.map(p=>'p_'+p.parameter)].join(', '):'';
@@ -62,9 +62,11 @@ uniform float u_time;
 ${shared.map(p=>`uniform ${types[p.type][1]} ${p.name};`).join('\n')}
 ${instance.map(p=>`flat out ${types[p.type][1]==='bool'?'int':types[p.type][1]} wf_v_${p.name};`).join('\n')}
 out vec2 v_uv;
+${vertex.helpers||''}
 mat2 wf_rotate(float a){float c=cos(a),s=sin(a);return mat2(c,s,-s,c);}
 void main(){
     vec2 a_uv=vec2((gl_VertexID & 1)!=0?1.0:0.0,gl_VertexID>=2?1.0:0.0);
+    v_uv=a_uv;
 ${instance.map(p=>`    ${types[p.type][1]} ${p.name}=${readSlot(p)};\n    wf_v_${p.name}=${p.type==='BOOL'?`${p.name}?1:0`:p.name};`).join('\n')}
 ${vertex.lines}
     v_uv=${vertex.uv};

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {compileVertexGraph,defaultVertexGraph,normalizeTransform,evaluateVertexGraph} from '../frontend/compiler/vertex-graph.js';
 import {parameterLayout,buildRuntimeSources} from '../frontend/export/runtime-exporter.js';
 import {zipBytes} from '../frontend/export/zip.js';
+import {migrateVertexGraph,supportsStage,stageNodes} from '../frontend/workflow-stages.js';
+import {createWorkflowCompiler} from '../frontend/compiler/workflow-compiler.js';
 const base={config:{className:'TestEffect',shaderDir:'data/shaders/test'},graph:{nodes:[],links:[]},transform:{},inputs:[],textures:[],fragment:'#version 420\nin vec2 v_uv;\nuniform float u_time;\nout vec4 fragColor;\nvoid main(){fragColor=vec4(v_uv,0,1);}'};
 test('legacy transform preserves zero scale, noncentral and nonrectangular vertices',()=>{const t=normalizeTransform({sx:0,vertices:[[10,20],[80,20],[15,90],[70,85]]});assert.equal(t.sx,0);assert.deepEqual(t.vertices[3],[70,85]);assert.ok(compileVertexGraph(t.graph).position);assert.deepEqual(evaluateVertexGraph(t.graph,[70,85],[1,1]),{position:[70,85],uv:[1,1]});});
 test('reject cycles, missing connections, stage type mismatches and duplicate IDs',()=>{const g=defaultVertexGraph();g.nodes.push({id:'cycle',op:'add',inputs:{a:'cycle',b:'position'}});g.nodes[2].inputs.position='cycle';assert.throws(()=>compileVertexGraph(g),/循环/);g.nodes[2].inputs.position='missing';assert.throws(()=>compileVertexGraph(g),/缺少/);g.nodes.push({id:'time',op:'time'});g.nodes[2].inputs.position='time';assert.throws(()=>compileVertexGraph(g),/需要 vec2/);g.nodes.push(g.nodes[0]);assert.throws(()=>compileVertexGraph(g),/重复/);});
@@ -11,3 +13,19 @@ test('SSBO ABI uses 16-byte slots; scalar integer payloads retain integer types'
 test('cross-stage instance declarations and viewport alpha are generated',()=>{const f=buildRuntimeSources({...base,inputs:[{name:'u_color',type:'VEC4',scope:'instance'}],fragment:base.fragment.replace('void main()', 'uniform vec4 u_color;\nvoid main()')});assert.match(f.fragment.content,/flat in vec4 wf_v_u_color/);assert.match(f.fragment.content,/fragColor.a \*= u_viewportAlpha/);assert.match(f.java.content,/extends WorkflowBatch/);assert.equal(JSON.parse(f.layout.content).stride,16);});
 test('export rejects unsafe paths and reserved names',()=>{assert.throws(()=>buildRuntimeSources({...base,config:{...base.config,shaderDir:'data/../escape'}}),/路径/);assert.throws(()=>parameterLayout([{name:'u_time',type:'FLOAT'}]),/保留/);assert.throws(()=>parameterLayout([{name:'u_x',type:'FLOAT'},{name:'u_x',type:'VEC2'}]),/重复/);});
 test('ZIP has valid directory offsets and UTF-8 file contents',()=>{const z=zipBytes([{filename:'src/test.java',content:'hello 中文'}]),v=new DataView(z.buffer);assert.equal(v.getUint32(0,true),0x04034b50);assert.equal(v.getUint32(z.length-22,true),0x06054b50);const offset=v.getUint32(z.length-6,true);assert.equal(v.getUint32(offset,true),0x02014b50);assert.equal(v.getUint16(z.length-12,true),1);});
+test('legacy vertex graph migrates to the shared graph format without losing links or parameter scope',()=>{
+  const old=defaultVertexGraph();old.nodes.push({id:'p',op:'parameter',parameter:'u_offset'},{id:'add',op:'add',inputs:{a:'position',b:'p'}});old.nodes[2].inputs.position='add';
+  const g=migrateVertexGraph(old,{nodes:[{typeId:'io.input',properties:{uniform:'u_offset',valueType:'VEC2',scope:'instance',defaultValue:'2,3'}}]});
+  assert.equal(g.outputNodeId,'output');assert.equal(g.nodes.find(n=>n.id==='p').properties.scope,'instance');assert.equal(g.links.find(l=>l.toNode==='output'&&l.toSocket==='position').fromNode,'add');
+  assert.deepEqual(migrateVertexGraph(g),g);assert.ok(!old.nodes[0].typeId);
+  assert.throws(()=>migrateVertexGraph(old),/未声明/);
+  assert.equal(supportsStage('noise.fbm','vertex'),true);assert.equal(supportsStage('io.output','vertex'),false);assert.equal(supportsStage('vertex.output','fragment'),false);
+});
+test('shared compiler compiles both vertex sinks once and rejects cycles / incomplete output',()=>{
+  const defs=[...stageNodes,{typeId:'input.uv',inputs:[],outputs:[{name:'uv',type:'VEC2'}]},{typeId:'math.add',inputs:[{name:'a',type:'VEC2'},{name:'b',type:'VEC2'}],outputs:[{name:'value',type:'VEC2'}]}];
+  const compiler=createWorkflowCompiler({nodeDef:n=>defs.find(d=>d.typeId===n.typeId),typeKey:t=>String(t).toUpperCase(),typeLabel:t=>String(t).toLowerCase(),variableBranchOwner:()=>null,customParameters:()=>null,textureSamplingFunctions:()=>''});
+  const g=migrateVertexGraph(defaultVertexGraph());g.nodes.push({id:'sum',typeId:'math.add',properties:{}});g.links=[{fromNode:'uv',fromSocket:'uv',toNode:'sum',toSocket:'a'},{fromNode:'position',fromSocket:'value',toNode:'sum',toSocket:'b'},...['position','uv'].map(toSocket=>({fromNode:'sum',fromSocket:'value',toNode:'output',toSocket}))];
+  const program=compiler.vertexStage(g);assert.equal(program.position,program.uv);assert.equal(program.lines.split('\n').length,1);
+  g.links[0].fromNode='sum';g.links[0].fromSocket='value';assert.throws(()=>compiler.vertexStage(g),/循环/);
+  g.links=g.links.filter(l=>l.toSocket!=='uv');assert.throws(()=>compiler.vertexStage(g),/缺少连接/);
+});
