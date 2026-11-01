@@ -51,29 +51,33 @@ build/             导出回归测试
 - `parameter-layout.json`：参数类型、作用域、16 字节槽位及 SSBO 绑定契约。
 - `USAGE.txt`：构造参数与实例调用说明。
 
-将 src/ 内容合并到 Mod 源码目录，data/ 内容合并到 Mod 根目录，再编译 Java。多个效果共用同一份 workflow 运行时，升级时一起更新。保留原来的四顶点构造器，另提供使用项目几何的便捷构造器。旧 JSON 不含作用域时默认为共享；不含顶点图时自动使用直通图，原缩放／旋转／平移继续生效，零缩放也会保留。
+将 src/ 内容合并到 Mod 源码目录，data/ 内容合并到 Mod 根目录，再编译 Java。多个效果共用一份 workflow 运行时。1.3 起导出的 Plugin 构造函数接收完整参数配置，自动创建实例；不再使用 1.2 的默认实例构造接口或调用方手动初始化循环。几何来自工作流配置。
 
-实例由游戏调用方创建、更新和移除。默认构造一个实例以兼容原调用习惯；使用批量方式前可调用 `clearInstances()`。位置、旋转、缩放只应用一次；片段用到的每实例参数由顶点阶段读取并通过 flat 接口传递，UV 正常插值。
+在输入节点检查器中定义“参数 ID”、类型、作用域。参数 ID 同时显示在节点卡片上，生成 Java 字段、配置类构造参数及 setter 时保持原名；节点名称可写中文说明，内部连线 ID 和 GLSL uniform 名称独立保留。新输入节点获得独立参数 ID；旧图未设置 parameterId 时取 uniform 去掉 u_ 的名称。同一个 uniform 在两阶段的 ID、类型和作用域必须一致；不同 uniform 不能占用同一个参数 ID。
 
-`frontend/examples/instanced-wave.workflow.json` 可直接导入。该例的调用方式为：
+- 每实例输入自动进入 InstanceParameters；每份配置包含 Transform 和该效果的全部每实例参数。
+- 共享输入与纹理自动进入 SharedParameters；没有共享输入时，构造接口自动省略这个类和参数。
+- 输入节点增删、改名、改类型或改作用域会同步改变配置类、构造签名、参数布局与使用说明。所有输入均必填；节点默认值只用于编辑器预览。
+- 工作流配置窗口中的“Plugin 构造参数”可查看当前完整签名。参数 ID 必须是非关键字的 Java 标识符；实例参数名 transform 为变换配置保留。
+
+内置“实例波动四边形”的入口只需：
 
 ```java
 InstancedWave effect = new InstancedWave(
     CombatEngineLayers.BELOW_SHIPS_LAYER,
-    new Vector4f(1f, 0.3f, 0.1f, 1f), 20f);
+    new InstancedWave.InstanceParameters(
+        new InstancedWave.Transform(100f, 100f),
+        new Vector4f(1f, 0.3f, 0.1f, 1f), 20f),
+    new InstancedWave.InstanceParameters(
+        new InstancedWave.Transform(300f, 100f, 45f, 1f, 1f),
+        new Vector4f(0.2f, 0.8f, 1f, 1f), 45f)
+);
 engine.addLayeredRenderingPlugin(effect);
-effect.clearInstances();
-WorkflowBatch.Instance first = effect.createInstance().setPosition(100f, 100f);
-effect.set_u_color(first, new Vector4f(1f, 0.3f, 0.1f, 1f));
-effect.set_u_amplitude(first, 20f);
-WorkflowBatch.Instance second = effect.createInstance().setPosition(300f, 100f).setAngle(45f);
-effect.set_u_color(second, new Vector4f(0.2f, 0.8f, 1f, 1f));
-effect.set_u_amplitude(second, 45f);
-// first.remove();                // 移除一个实例
-// effect.markExpired();          // 结束整批；cleanup 可重复调用
 ```
 
-新增实例的自定义参数初始为零，请通过 setter 填写；输入节点的默认值用于编辑器预览。纹理、共享参数、混合方式和图层在一个批次内相同，需要不同材质时创建另一批次。透明效果保持实例插入顺序及批次登记顺序，不做破坏透明顺序的全局排序。API 在战斗／渲染线程调用。
+上面传了两份配置，因此创建两个实例；传 8 份或长度为 8 的数组，就创建 8 个，空数组创建空批次。实例创建、参数填写、GPU 资源初始化、绘制及清理由生成代码处理，不要求额外写战斗插件。坐标为世界坐标，角度为度。构造配置是快照；需要后续移动时调用 effect.instance(0).setPosition(x,y)，需要更新自定义参数时调用 effect.set_color(effect.instance(0),color)，结束整批调用 effect.markExpired()。
+
+位置、旋转、缩放只应用一次；片段所需实例参数由顶点读 SSBO 并通过 flat 接口传递，UV 正常插值。纹理、共享参数、混合方式和图层在一批内相同；透明效果保持实例插入顺序及批次登记顺序。更新 API 在战斗／渲染线程调用。UINT 在 Java 中使用 int 保存无符号 32 位位模式。
 
 ## 顶点与片段共用工作流
 
@@ -96,6 +100,8 @@ flowchart TD
     Draft --> Compiler[同一类型化图编译器]
     Compiler --> VS[顶点下游：position 与 UV]
     Compiler --> FS[片段下游：color]
+    Draft --> Contract[节点参数 ID / 必填配置类 / 构造接口]
+    Contract --> Export
     Draft --> ABI[跨阶段参数校验与 std430 布局]
     VS --> Export[Java / GLSL / ZIP 生成器]
     FS --> Export
@@ -174,4 +180,4 @@ npm run test:browser
 
 ## 状态
 
-1.2.0 将顶点与片段编辑器合并为同一工作流引擎，统一按钮主题，并保留实例化导出。浏览器编辑器为主实现；Java graph/compiler 为兼容原型。更新源码后需要重新构建桌面包，旧 Releases 不会自动更新。
+1.3.0 根据输入节点生成完整构造参数类，Plugin 在构造时自动创建实例。1.2 的调用代码需要调整为新的配置对象接口；原工作流 JSON 可继续打开。浏览器编辑器为主实现；Java graph/compiler 为兼容原型。更新源码后需要重新构建桌面包，旧 Releases 不会自动更新。

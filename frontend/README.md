@@ -16,3 +16,5 @@
 草稿分别保存在 sessionStorage 的 workflow.graph 和 workflow.vertexTransform.graph；保存时一起写入 localStorage 项目库。旧 vertex.html 只重定向到 index.html?stage=vertex，不存在第二套画布。
 
 详见根 README、docs/AI_WORKFLOW_FORMAT.md 和 docs/VALIDATION.md。
+
+1.3：export/parameter-contract.js 校验面板参数 ID 与跨阶段一致性；export/java-material.js 根据类型和作用域生成必填配置类、Plugin 构造函数及使用说明。实例构造与初始化在生成类内部完成。

@@ -1,3 +1,5 @@
+import {parameterId,validParameterId,validateParameterIds} from './export/parameter-contract.js';
+import {constructionGuide} from './export/java-material.js';
 import {installGeometrySettings} from './geometry-settings.js';
 import {createWorkflowCompiler} from './compiler/workflow-compiler.js';
 import {stages,stageNodes,supportsStage,migrateVertexGraph} from './workflow-stages.js';
@@ -446,6 +448,7 @@ const portId = (nodeId, direction, name) => `${nodeId}:${direction}:${name}`;
 const path = (x1, y1, x2, y2) => { const d = Math.max(56, Math.abs(x2 - x1) * .55); return `M ${x1} ${y1} C ${x1 + d} ${y1}, ${x2 - d} ${y2}, ${x2} ${y2}`; };
 function addNode(typeId, x = 100, y = 100) {
   const d = def(typeId), node = { id: id(typeId.split(".").pop()), typeId, title: d.title, canvasX: Math.round(x), canvasY: Math.round(y), properties: { ...clone(d.properties), previewEnabled: !["math.constant"].includes(typeId) } };
+  if(["io.input","input.texture"].includes(typeId)){node.properties.parameterId=node.id;node.properties.uniform="u_"+node.id;}
   store.command("ADD_NODE", { node }); select(node.id);
 }
 function timePreviewNode(graph){return graph.nodes.find(node=>node.typeId==="input.time")||null;}
@@ -564,7 +567,7 @@ function renderGraph(graph) {
   graph.nodes.forEach(node => {
     const d = nodeDef(node), element = document.createElement("article"); element.className = `workflow-node${ui.selectedNodes.has(node.id) ? " selected" : ""}`; element.dataset.id = node.id; element.dataset.type = node.typeId; element.style.left = `${node.canvasX}px`; element.style.top = `${node.canvasY}px`;
     const showPreview=d.outputs.length && node.properties.previewEnabled;
-    element.innerHTML = `<header class="node-header"><span class="type-icon"></span><span>${node.title||d.title}</span><span class="node-id">${node.id}</span></header>${showPreview ? `<canvas class="node-preview" width="112" height="112" title="节点输出预览"></canvas>` : ""}<div class="node-body"></div>`;
+    element.innerHTML = `<header class="node-header"><span class="type-icon"></span><span>${node.title||d.title}</span><span class="node-id">${escapeHtml(["io.input","input.texture"].includes(node.typeId)?parameterId(node):node.id)}</span></header>${showPreview ? `<canvas class="node-preview" width="112" height="112" title="节点输出预览"></canvas>` : ""}<div class="node-body"></div>`;
     element.addEventListener("pointerdown", event => {
       if (event.button !== 0 || isNodeInteractiveTarget(event.target)) return;
       beginDrag(event, node);
@@ -644,6 +647,7 @@ function validateNodeProperty(node, definition, key, value) {
   const typed=typedPropertyType(node,definition,key);
   if(typed)return validateConstantValue(value,typed);
   if(typeof node.properties[key]==="boolean")return String(value)==="true"?{valid:true,value:true}:{valid:true,value:false};
+  if(key==="parameterId")return validParameterId(String(value))?{valid:true,value:String(value)}:{valid:false,message:"参数 ID 必须是有效 Java 标识符，不能是关键字。"};
   if(key==="uniform")return /^u_[A-Za-z][A-Za-z0-9_]*$/.test(String(value))?{valid:true,value:String(value)}:{valid:false,message:"Uniform 名称必须以 u_ 开头，并且后续只能使用字母、数字或下划线。"};
   if(["trueWidth","trueHeight","falseWidth","falseHeight","width","height"].includes(key))return Number.isFinite(Number(value))&&Number(value)>0?{valid:true,value:String(Number(value))}:{valid:false,message:"分支区域尺寸必须是大于 0 的数字。"};
   return {valid:true,value:String(value)};
@@ -668,11 +672,17 @@ function renderInspector(graph) {
     });
     root.append(field);
   }
-  if(node.typeId==='io.input'){const field=document.createElement('div');field.className='field';field.innerHTML='<label>参数作用域</label><select aria-label="参数作用域"><option value="shared">整批共享</option><option value="instance">每个实例</option></select><small>每实例值由运行时 API 更新，可供顶点图和片段图使用。</small>';field.querySelector('select').value=node.properties.scope||'shared';field.querySelector('select').onchange=e=>store.command('SET_PROPERTY',{nodeId:node.id,key:'scope',value:e.target.value});root.append(field);}
+  if(['io.input','input.texture'].includes(node.typeId)){
+    const field=document.createElement('div');field.className='field';
+    field.innerHTML='<label>参数 ID（生成代码中的名称）</label><input aria-label="参数 ID"><small>字段与构造参数使用此 ID。中文说明可填在节点名称中。</small><small class="constant-error" hidden></small>';
+    const input=field.querySelector('input'),error=field.querySelector('.constant-error');input.value=parameterId(node);
+    input.onchange=()=>{const value=input.value.trim();if(!validParameterId(value)||(node.properties.scope==='instance'&&value==='transform')){error.textContent='请输入有效且非保留的 Java 参数 ID';error.hidden=false;input.setAttribute('aria-invalid','true');return;}store.command('SET_PROPERTY',{nodeId:node.id,key:'parameterId',value});};root.append(field);
+  }
+  if(node.typeId==='io.input'){const field=document.createElement('div');field.className='field';field.innerHTML='<label>参数作用域</label><select aria-label="参数作用域"><option value="shared">整批共享</option><option value="instance">每个实例</option></select><small>创建 Plugin 时通过 InstanceParameters 传入；共享值通过 SharedParameters 传入。</small>';field.querySelector('select').value=node.properties.scope||'shared';field.querySelector('select').onchange=e=>store.command('SET_PROPERTY',{nodeId:node.id,key:'scope',value:e.target.value});root.append(field);}
   if(node.typeId==="logic.variable"){const inferred=variableBranchOwner(graph,node),field=document.createElement("div");field.className="field";field.innerHTML=`<label>控制流来源</label><div class="readonly">${inferred?(inferred.branch==="loop"?"FOR 循环体（由 value 输入来源自动推断）":`${inferred.branch.toUpperCase()} 分支（由 value 输入来源自动推断）`):"未连接到 If 或 For 内的节点"}</div><small class="type-hint">init 在控制块前初始化，value 的输入来源决定在哪个 If 分支或 For 循环体内写入。</small>`;root.append(field);}
   if (node.typeId === "input.texture") { const field=document.createElement("div");field.className="field texture-input-field";field.innerHTML=`<label>预览纹理</label><input type="file" accept="image/*"><small>仅用于工作流预览；导出后由构造器传入 SpriteAPI。</small>${node.properties.previewDataUrl?'<img class="texture-source-preview" alt="纹理预览">':''}`;const file=field.querySelector("input");file.addEventListener("change",event=>{const selected=event.target.files?.[0];if(!selected)return;const reader=new FileReader();reader.addEventListener("load",()=>store.command("SET_PROPERTY",{nodeId:node.id,key:"previewDataUrl",value:String(reader.result||"")}));reader.readAsDataURL(selected);});const image=field.querySelector("img");if(image)image.src=node.properties.previewDataUrl;root.append(field); }
   if (d.outputs.length) { const preview=document.createElement("div"); preview.className="field preview-toggle"; preview.innerHTML=`<label><input type="checkbox" ${node.properties.previewEnabled ? "checked" : ""}> 输出预览</label>`; preview.querySelector("input").addEventListener("change",event=>store.command("SET_PROPERTY",{nodeId:node.id,key:"previewEnabled",value:event.target.checked})); root.append(preview); }
-  Object.entries(node.properties).filter(([key])=>!['previewEnabled','valueType','previewDataUrl','scope'].includes(key)).forEach(([key, value]) => {
+  Object.entries(node.properties).filter(([key])=>!['previewEnabled','valueType','previewDataUrl','scope','parameterId'].includes(key)).forEach(([key, value]) => {
     const field=document.createElement("div");
     field.className="field";
     const valueType=typedPropertyType(node,d,key),isTypedValue=!!valueType;
@@ -1022,6 +1032,7 @@ function renderCompileStatus(graph) {
   return readiness;
 }
 function validateRuntimeInputs(graph){
+  validateParameterIds(graph.nodes.filter(n=>["io.input","input.texture"].includes(n.typeId)).map(n=>({id:parameterId(n),name:inputUniformName(n),type:n.typeId==="input.texture"?"SAMPLER2D":typeKey(nodeDef(n).outputs[0]?.type),scope:n.typeId==="input.texture"?"shared":n.properties.scope||"shared"})));
   const supported=new Set(["BOOL","INT","UINT","FLOAT","VEC2","VEC3","VEC4"]),inputs=graphInputs(graph),textures=graphTextureInputs(graph),unsupported=inputs.filter(input=>!supported.has(typeKey(input.type)));
   if(unsupported.length)throw new Error(`当前 Java Plugin 的公共 uniform 参数不支持：${unsupported.map(input=>`${input.name}: ${typeLabel(input.type)}`).join("，")}。请改用 bool/int/uint/float/vec2/vec3/vec4，或先在工作流内部转换。`);
   const declarations=[];
@@ -1045,7 +1056,7 @@ document.querySelector("#import-workflow").addEventListener("click",()=>{documen
 document.querySelector("#close-import-dialog").addEventListener("click",()=>document.querySelector("#import-dialog").close());
 document.querySelector("#choose-workflow-file").addEventListener("click",()=>document.querySelector("#workflow-file-input").click());
 document.querySelector("#workflow-file-input").addEventListener("change",event=>{const file=event.target.files?.[0];if(file)importWorkflowFile(file);event.target.value="";});
-document.querySelector("#workflow-manager").addEventListener("click",()=>{const config=projectConfig(),resolution=previewResolution(config);document.querySelector("#workflow-title").value=config.title;document.querySelector("#plugin-class-name").value=config.className;document.querySelector("#shader-directory").value=config.shaderDir;document.querySelector("#blend-mode").value=config.blendMode||"alpha";document.querySelector("#preview-canvas-width").value=resolution.width;document.querySelector("#preview-canvas-height").value=resolution.height;document.querySelector("#bridge-port").value=workflowBridge.port();document.querySelector("#bridge-status").textContent="未检测；点击“检测桥接”后再配置 MCP。";renderWorkflowLibrary();document.querySelector("#workflow-dialog").showModal();});
+document.querySelector("#workflow-manager").addEventListener("click",()=>{const config=projectConfig(),resolution=previewResolution(config);document.querySelector("#workflow-title").value=config.title;document.querySelector("#plugin-class-name").value=config.className;document.querySelector("#shader-directory").value=config.shaderDir;document.querySelector("#blend-mode").value=config.blendMode||"alpha";document.querySelector("#preview-canvas-width").value=resolution.width;document.querySelector("#preview-canvas-height").value=resolution.height;document.querySelector("#bridge-port").value=workflowBridge.port();document.querySelector("#bridge-status").textContent="未检测；点击“检测桥接”后再配置 MCP。";renderWorkflowLibrary();renderConstructorContract();document.querySelector("#workflow-dialog").showModal();});
 document.querySelector("#bridge-port").addEventListener("change",event=>workflowBridge.setPort(event.target.value));
 document.querySelector("#bridge-check").addEventListener("click",checkBridge);
 document.querySelector("#bridge-self-test").addEventListener("click",selfTestMcp);
@@ -1061,7 +1072,7 @@ bridgePromptButton.addEventListener("click",async()=>{bridgePromptBox.value=awai
 document.querySelector("#close-workflow-dialog").addEventListener("click",()=>document.querySelector("#workflow-dialog").close());
 document.querySelector("#create-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:`workflow_${Date.now()}`,title:document.querySelector("#workflow-title").value||"Untitled Workflow",className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,blendMode:document.querySelector("#blend-mode").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value});openWorkflow(config,starterGraph(),false);saveWorkflow();renderWorkflowLibrary();});
 document.querySelector("#save-current-workflow").addEventListener("click",()=>{const config=bridgeProjectConfig({id:projectConfig().id,title:document.querySelector("#workflow-title").value,className:document.querySelector("#plugin-class-name").value,shaderDir:document.querySelector("#shader-directory").value,blendMode:document.querySelector("#blend-mode").value,previewWidth:document.querySelector("#preview-canvas-width").value,previewHeight:document.querySelector("#preview-canvas-height").value},projectConfig());sessionStorage.setItem("workflow.projectConfig",JSON.stringify(config));store.graph.previewRevision=++store.previewRevision;store.emit();saveWorkflow();renderWorkflowLibrary();});
-store.subscribe(graph => { persistActiveGraph(graph); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph); workflowBridge.publish(graph); });
+store.subscribe(graph => { persistActiveGraph(graph); document.querySelector("#revision").textContent = graph.revision; document.querySelector("#workflow-name").textContent=projectConfig().title; document.querySelector("#footer-message").textContent = `${graph.nodes.length} 节点 · ${graph.links.length} 连线`; renderGraph(graph); renderInspector(graph); renderCompileStatus(graph);if(document.querySelector("#workflow-dialog").open)renderConstructorContract(); workflowBridge.publish(graph); });
 setInterval(() => workflowBridge.pull(), 250);
 setInterval(() => workflowBridge.publish(store.snapshot()), 2000);
 function addDemo() {
@@ -1121,3 +1132,8 @@ void main(){
   }finally{if(buffer)gl.deleteBuffer(buffer);if(program)gl.deleteProgram(program);}
 }
 installGeometrySettings({getTransform:currentVertexTransform,setTransform:t=>{sessionStorage.setItem('workflow.vertexTransform',JSON.stringify(normalizeTransform(t)));store.graph.previewRevision=++store.previewRevision;store.emit();},getParameters:()=>graphInputs({nodes:[...currentFragmentGraph().nodes,...currentVertexTransform().graph.nodes]}),draw:drawGeometryPreview});
+
+function renderConstructorContract(){
+  const panel=document.querySelector('#constructor-contract');
+  try{const all={nodes:[...currentFragmentGraph().nodes,...currentVertexTransform().graph.nodes]};validateRuntimeInputs(all);panel.textContent=constructionGuide(projectConfig(),graphInputs(all),graphTextureInputs(all));}catch(error){panel.textContent='参数接口无法生成：'+error.message;}
+}

@@ -100,7 +100,7 @@ $results += Import-Case "texture_tint" "VerifyTextureTintPlugin" @(
     (Link "mul" "value" "out" "color")
 ) "out"
 
-# 4b. Texture ids are used as Java parameter names, so Java keywords must be escaped.
+# 4b. Java parameter IDs are independent of texture resource IDs.
 $results += Import-Case "keyword_texture" "VerifyKeywordTexturePlugin" @(
     (Node "tex" "input.texture" 10 10 @{ textureId = "class"; uniform = "u_keywordTexture" }),
     (Node "uv" "input.uv" 10 140 @{}), (Node "sample" "texture.sample2d" 260 60 @{}), (Node "out" "io.output" 520 60 @{})
@@ -194,7 +194,7 @@ $collision = @{
     ); links = @((Link "texture" "texture" "sample" "texture"), (Link "uv" "uv" "sample" "uv"), (Link "sample" "rgba" "out" "color")) }
 }
 Invoke-WorkflowAction @{ type = "IMPORT_WORKFLOW_DATA"; payload = @{ workflow = $collision } }
-Invoke-WorkflowActionExpectFailure @{ type = "EXPORT_RUNTIME"; payload = @{} } "uniform 名称冲突"
+Invoke-WorkflowActionExpectFailure @{ type = "EXPORT_RUNTIME"; payload = @{} } "跨节点参数声明冲突"
 
 # 10. u_time belongs to the runtime clock and cannot be redeclared by a user input.
 $reserved = @{
@@ -257,10 +257,10 @@ $results | ForEach-Object {
     $javaOk =  $_.Java.Contains("extends WorkflowBatch") -and $_.Java.Contains("bindSharedParameters")
     $pairOk =  $_.Vertex.Contains("gl_InstanceID") -and $_.Vertex.Contains("WorkflowParameters") -and $_.Fragment.Contains("void main()") -and $_.Fragment.Contains("fragColor =")
     $textureOk = if ($_.Name.Contains("texture")) { $_.Fragment.Contains("uniform sampler2D") -and $_.Fragment.Contains("vec4 vec4_1 = sampleTexture") -and $_.Java.Contains("SpriteAPI") -and  $_.Java.Contains("bindTexture") } else { $true }
-    $uniformOk = if ($_.Name -eq "uniforms") { $_.Java.Contains("Vector3f p_u_color") -and $_.Java.Contains("GL20.glUniform3f") -and $_.Fragment.Contains("uniform vec3 u_color") } else { $true }
-    $customOk = if ($_.Name -eq "custom_multi_out") { $_.Fragment.Contains("void wf_custom_custom_select_luminance") -and $_.Fragment.Contains("vec4 wf_custom_vec4_1") -and $_.Fragment.Contains("float wf_custom_float_1") -and -not $_.Fragment.Contains("float wf_custom_vec4_1") -and $_.Java.Contains("boolean p_u_enabled") } elseif ($_.Name -eq "custom_inout") { $_.Fragment.Contains("void wf_custom_custom_gain_inout") -and $_.Fragment.Contains("float wf_custom_float_1 = u_base") } else { $true }
+    $uniformOk = if ($_.Name -eq "uniforms") { $_.Java.Contains("Vector3f color") -and $_.Java.Contains("GL20.glUniform3f") -and $_.Fragment.Contains("uniform vec3 u_color") } else { $true }
+    $customOk = if ($_.Name -eq "custom_multi_out") { $_.Fragment.Contains("void wf_custom_custom_select_luminance") -and $_.Fragment.Contains("vec4 wf_custom_vec4_1") -and $_.Fragment.Contains("float wf_custom_float_1") -and -not $_.Fragment.Contains("float wf_custom_vec4_1") -and $_.Java.Contains("boolean enabled") } elseif ($_.Name -eq "custom_inout") { $_.Fragment.Contains("void wf_custom_custom_gain_inout") -and $_.Fragment.Contains("float wf_custom_float_1 = u_base") } else { $true }
     $multiTextureOk = if ($_.Name -eq "two_textures") { $_.Java.Contains('bindTexture("u_secondTexture",1') -and $_.Fragment.Contains("uniform sampler2D u_firstTexture") -and $_.Fragment.Contains("uniform sampler2D u_secondTexture") } else { $true }
-    $keywordOk = if ($_.Name -eq "keyword_texture") { $_.Java.Contains("SpriteAPI p_class_") -and -not $_.Java.Contains("SpriteAPI class)") } else { $true }
+    $keywordOk = if ($_.Name -eq "keyword_texture") { $_.Java.Contains("SpriteAPI keywordTexture") -and -not $_.Java.Contains("SpriteAPI class)") } else { $true }
     $controlFlowOk = if ($_.Name -eq "if_variables") { $_.Fragment.Contains("float wf_var_trueVariable = 0.0000;") -and $_.Fragment.Contains("if (u_condition)") -and $_.Fragment.Contains("wf_var_trueVariable = float_1;") -and $_.Fragment.Contains("wf_var_falseVariable = float_2;") } elseif ($_.Name -eq "for_variables") { $_.Fragment.Contains("for (int wf_loop_i_loop = 0;") -and $_.Fragment.Contains("float(wf_loop_i_loop)") -and $_.Fragment.Contains("wf_var_variable = float_2;") } else { $true }
     if (-not ($javaOk -and $pairOk -and $textureOk -and $uniformOk -and $customOk -and $multiTextureOk -and $keywordOk -and $controlFlowOk)) { throw "Generated source validation failed for $($_.Name)." }
     [pscustomobject]@{ Name = $_.Name; JavaChars = $_.Java.Length; VertexChars = $_.Vertex.Length; FragmentChars = $_.Fragment.Length; JavaPipeline = $javaOk; ShaderPair = $pairOk; TextureBindings = $textureOk; UniformBindings = $uniformOk; CustomBindings = $customOk; MultiTextureBindings = $multiTextureOk; JavaKeywordSafety = $keywordOk; ControlFlow = $controlFlowOk }

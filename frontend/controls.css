@@ -29,3 +29,5 @@ html body button[hidden] { display:none; }
 
 html body select { color:var(--button-text); background:var(--button-bg); border:1px solid var(--button-border); border-radius:5px; padding:6px 10px; font:inherit; }
 .workflow-create select { display:block; width:100%; margin-top:4px; }
+
+.constructor-contract {margin:16px 0;} .constructor-contract summary {cursor:pointer;color:var(--blue);} .constructor-contract pre {white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 Consolas,monospace;max-height:280px;overflow:auto;}

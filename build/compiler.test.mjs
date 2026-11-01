@@ -5,11 +5,12 @@ import {parameterLayout,buildRuntimeSources} from '../frontend/export/runtime-ex
 import {zipBytes} from '../frontend/export/zip.js';
 import {migrateVertexGraph,supportsStage,stageNodes} from '../frontend/workflow-stages.js';
 import {createWorkflowCompiler} from '../frontend/compiler/workflow-compiler.js';
+import {validateParameterIds,parameterId} from '../frontend/export/parameter-contract.js';
 const base={config:{className:'TestEffect',shaderDir:'data/shaders/test'},graph:{nodes:[],links:[]},transform:{},inputs:[],textures:[],fragment:'#version 420\nin vec2 v_uv;\nuniform float u_time;\nout vec4 fragColor;\nvoid main(){fragColor=vec4(v_uv,0,1);}'};
 test('legacy transform preserves zero scale, noncentral and nonrectangular vertices',()=>{const t=normalizeTransform({sx:0,vertices:[[10,20],[80,20],[15,90],[70,85]]});assert.equal(t.sx,0);assert.deepEqual(t.vertices[3],[70,85]);assert.ok(compileVertexGraph(t.graph).position);assert.deepEqual(evaluateVertexGraph(t.graph,[70,85],[1,1]),{position:[70,85],uv:[1,1]});});
 test('reject cycles, missing connections, stage type mismatches and duplicate IDs',()=>{const g=defaultVertexGraph();g.nodes.push({id:'cycle',op:'add',inputs:{a:'cycle',b:'position'}});g.nodes[2].inputs.position='cycle';assert.throws(()=>compileVertexGraph(g),/循环/);g.nodes[2].inputs.position='missing';assert.throws(()=>compileVertexGraph(g),/缺少/);g.nodes.push({id:'time',op:'time'});g.nodes[2].inputs.position='time';assert.throws(()=>compileVertexGraph(g),/需要 vec2/);g.nodes.push(g.nodes[0]);assert.throws(()=>compileVertexGraph(g),/重复/);});
 test('typed parameter in vertex stage and CPU preview agree',()=>{const g=defaultVertexGraph();g.nodes.push({id:'factor',op:'parameter',parameter:'u_scale'},{id:'scaled',op:'scale',inputs:{value:'position',factor:'factor'}});g.nodes[2].inputs.position='scaled';assert.match(compileVertexGraph(g,[{name:'u_scale',type:'FLOAT'}]).lines,/u_scale/);assert.deepEqual(evaluateVertexGraph(g,[3,4],[0,0],0,{u_scale:2}).position,[6,8]);assert.throws(()=>compileVertexGraph(g,[]),/未声明/);});
-test('SSBO ABI uses 16-byte slots; scalar integer payloads retain integer types',()=>{const layout=parameterLayout(['BOOL','INT','UINT','FLOAT','VEC2','VEC3','VEC4'].map((type,i)=>({name:'u_p'+i,type,scope:'instance'})));assert.deepEqual(layout.map(p=>p.slot),[0,1,2,3,4,5,6]);const f=buildRuntimeSources({...base,inputs:layout});assert.match(f.java.content,/putInt\(instance,32,value\)/);assert.match(f.vertex.content,/WF_PARAMETER_SLOTS=7/);assert.match(f.vertex.content,/flat out int wf_v_u_p0/);assert.match(f.vertex.content,/uintBitsToFloat/);assert.ok(!f.fragment.content.includes('gl_InstanceID'));});
+test('SSBO ABI uses 16-byte slots; scalar integer payloads retain integer types',()=>{const layout=parameterLayout(['BOOL','INT','UINT','FLOAT','VEC2','VEC3','VEC4'].map((type,i)=>({name:'u_p'+i,type,scope:'instance'})));assert.deepEqual(layout.map(p=>p.slot),[0,1,2,3,4,5,6]);const f=buildRuntimeSources({...base,inputs:layout});assert.match(f.java.content,/putInt\(wf_instance,32,p2\)/);assert.match(f.vertex.content,/WF_PARAMETER_SLOTS=7/);assert.match(f.vertex.content,/flat out int wf_v_u_p0/);assert.match(f.vertex.content,/uintBitsToFloat/);assert.ok(!f.fragment.content.includes('gl_InstanceID'));});
 test('cross-stage instance declarations and viewport alpha are generated',()=>{const f=buildRuntimeSources({...base,inputs:[{name:'u_color',type:'VEC4',scope:'instance'}],fragment:base.fragment.replace('void main()', 'uniform vec4 u_color;\nvoid main()')});assert.match(f.fragment.content,/flat in vec4 wf_v_u_color/);assert.match(f.fragment.content,/fragColor.a \*= u_viewportAlpha/);assert.match(f.java.content,/extends WorkflowBatch/);assert.equal(JSON.parse(f.layout.content).stride,16);});
 test('export rejects unsafe paths and reserved names',()=>{assert.throws(()=>buildRuntimeSources({...base,config:{...base.config,shaderDir:'data/../escape'}}),/路径/);assert.throws(()=>parameterLayout([{name:'u_time',type:'FLOAT'}]),/保留/);assert.throws(()=>parameterLayout([{name:'u_x',type:'FLOAT'},{name:'u_x',type:'VEC2'}]),/重复/);});
 test('ZIP has valid directory offsets and UTF-8 file contents',()=>{const z=zipBytes([{filename:'src/test.java',content:'hello 中文'}]),v=new DataView(z.buffer);assert.equal(v.getUint32(0,true),0x04034b50);assert.equal(v.getUint32(z.length-22,true),0x06054b50);const offset=v.getUint32(z.length-6,true);assert.equal(v.getUint32(offset,true),0x02014b50);assert.equal(v.getUint16(z.length-12,true),1);});
@@ -28,4 +29,25 @@ test('shared compiler compiles both vertex sinks once and rejects cycles / incom
   const program=compiler.vertexStage(g);assert.equal(program.position,program.uv);assert.equal(program.lines.split('\n').length,1);
   g.links[0].fromNode='sum';g.links[0].fromSocket='value';assert.throws(()=>compiler.vertexStage(g),/循环/);
   g.links=g.links.filter(l=>l.toSocket!=='uv');assert.throws(()=>compiler.vertexStage(g),/缺少连接/);
+});
+test('generated constructor contract follows parameter IDs, types, scopes and textures',()=>{
+  const f=buildRuntimeSources({...base,inputs:[{id:'tint',name:'u_color',type:'VEC4',scope:'instance'},{id:'speed',name:'u_speed',type:'FLOAT',scope:'shared'}],textures:[{id:'sprite',name:'u_texture',parameter:'ignoredOldName'}]});
+  assert.match(f.java.content,/SharedParameters\(float speed, SpriteAPI sprite\)/);
+  assert.match(f.java.content,/InstanceParameters\(Transform transform, Vector4f tint\)/);
+  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer,SharedParameters shared,InstanceParameters\.\.\. instances\)/);
+  assert.match(f.java.content,/set_tint\(instance,parameters.tint\)/);
+  assert.deepEqual(JSON.parse(f.layout.content).construction,{shared:['speed','sprite'],instance:['tint']});
+  const removed=buildRuntimeSources(base);assert.ok(!removed.java.content.includes('class SharedParameters'));
+  assert.match(removed.java.content,/InstanceParameters\(Transform transform\)/);
+  assert.equal(parameterId({id:'internal-id',properties:{uniform:'u_color',parameterId:'customColor'}}),'customColor');
+});
+test('parameter contract rejects ambiguous IDs across stages, keywords and reserved transform field',()=>{
+  const p={id:'tint',name:'u_color',type:'VEC4',scope:'instance'};
+  assert.doesNotThrow(()=>validateParameterIds([p,{...p}]));
+  assert.throws(()=>validateParameterIds([p,{...p,name:'u_other'}]),/重复/);
+  assert.throws(()=>validateParameterIds([p,{...p,id:'other'}]),/冲突/);
+  assert.throws(()=>validateParameterIds([p,{...p,scope:'shared'}]),/冲突/);
+  for(const id of ['class','_','java','a-b','transform'])assert.throws(()=>validateParameterIds([{...p,id}]),/无效|保留/);
+  const f=buildRuntimeSources({...base,inputs:[{id:'wf_instance',name:'u_value',type:'FLOAT',scope:'instance'}]});
+  assert.match(f.java.content,/Instance wf_instance_,float wf_instance/);
 });

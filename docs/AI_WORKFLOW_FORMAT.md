@@ -97,3 +97,15 @@ MCP 读取和编辑的是用户明确激活的编辑器草稿，不要求先保�
 - workflow_get_summary / workflow_get_current 的 stage 标明当前阶段，graph 是当前正在编辑的图。workflow_set_stage({stage:"vertex"}) 切换后，普通节点命令、选区、视图、SET_OUTPUT 等均操作顶点图；节点目录随阶段过滤。
 - workflow_set_vertex_transform 支持提交完整通用顶点图。workflow_export_runtime 在任意阶段导出整项目：Java、两个 GLSL、共用运行时、参数布局及使用说明，界面下载单个 ZIP。
 - 几何预览使用两张图的 WebGL2 编译结果。实例属性在顶点读取 SSBO，经 flat 接口按需传到片段；片段不使用 gl_InstanceID。
+
+## 1.3.0：节点参数驱动构造接口
+
+io.input 和 input.texture 可设置 properties.parameterId；此值就是节点卡片与检查器显示的参数 ID，以及导出的 Java 字段名、构造形参名和 set_<ID> 名称。它不改变节点内部 id、连线引用或 properties.uniform。旧图缺少该属性时，以 uniform 去掉 u_ 为默认值；新建节点会自动分配独立 ID。
+
+parameterId 必须为有效的非保留 Java 标识符。同 uniform 的重复引用必须 ID、类型、作用域全部一致；不同 uniform 不可使用同一个 parameterId。instance 作用域的 transform 保留给变换配置。
+
+导出 Plugin(layer, SharedParameters shared, InstanceParameters... instances)。没有共享输入或纹理时省略 SharedParameters。每个实例配置构造函数要求 Transform 加全部 instance 输入，共享配置要求全部 shared 输入与纹理；顺序与 parameter-layout.json 的 construction 字段一致。配置字段按节点自动拓展，类型与节点一致，不使用无类型 Map 或字符串参数包。
+
+Transform(x,y) 默认角度 0、缩放 1；完整形式为 Transform(x,y,angle,scaleX,scaleY)。传入几份实例配置就创建几个实例，构造器内部完成参数上传前的 CPU 初始化，不创建额外默认实例。所有输入必填，省略字段会产生 Java 编译错误；预览默认值不会替代调用参数。原 1.2 的构造函数不再生成。
+
+参数布局 version 升为 2，parameters 记录 id 与 name（GLSL uniform），textures 记录纹理参数 ID，construction 记录两类配置的形参顺序。Java 类同时提供 instance(index) 与按参数 ID 命名的 setter，用于可选的后续更新。
