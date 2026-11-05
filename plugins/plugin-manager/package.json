@@ -1,0 +1,14 @@
+{
+  "name": "@workflow-plugin/plugin-manager",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.ts",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "vue": "3.5.44"
+  }
+}

@@ -1,53 +1,95 @@
+import {noiseHarness} from "./noise-test-support.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {compileVertexGraph,defaultVertexGraph,normalizeTransform,evaluateVertexGraph} from '../frontend/compiler/vertex-graph.js';
-import {parameterLayout,buildRuntimeSources} from '../frontend/export/runtime-exporter.js';
+import { defaultVertexGraph } from '../packages/workflow-tools/defaults.mjs';
+import { normalizeTransform } from '../packages/workflow-tools/geometry.mjs';
+import {parameterLayout,buildRuntimeSources} from '../plugins/starsector/runtime-exporter.mjs';
 import {zipBytes} from '../frontend/export/zip.js';
-import {migrateVertexGraph,supportsStage,stageNodes} from '../frontend/workflow-stages.js';
-import {createWorkflowCompiler} from '../frontend/compiler/workflow-compiler.js';
-import {validateParameterIds,parameterId} from '../frontend/export/parameter-contract.js';
-const base={config:{className:'TestEffect',shaderDir:'data/shaders/test'},graph:{nodes:[],links:[]},transform:{},inputs:[],textures:[],fragment:'#version 420\nin vec2 v_uv;\nuniform float u_time;\nout vec4 fragColor;\nvoid main(){fragColor=vec4(v_uv,0,1);}'};
-test('legacy transform preserves zero scale, noncentral and nonrectangular vertices',()=>{const t=normalizeTransform({sx:0,vertices:[[10,20],[80,20],[15,90],[70,85]]});assert.equal(t.sx,0);assert.deepEqual(t.vertices[3],[70,85]);assert.ok(compileVertexGraph(t.graph).position);assert.deepEqual(evaluateVertexGraph(t.graph,[70,85],[1,1]),{position:[70,85],uv:[1,1]});});
-test('reject cycles, missing connections, stage type mismatches and duplicate IDs',()=>{const g=defaultVertexGraph();g.nodes.push({id:'cycle',op:'add',inputs:{a:'cycle',b:'position'}});g.nodes[2].inputs.position='cycle';assert.throws(()=>compileVertexGraph(g),/循环/);g.nodes[2].inputs.position='missing';assert.throws(()=>compileVertexGraph(g),/缺少/);g.nodes.push({id:'time',op:'time'});g.nodes[2].inputs.position='time';assert.throws(()=>compileVertexGraph(g),/需要 vec2/);g.nodes.push(g.nodes[0]);assert.throws(()=>compileVertexGraph(g),/重复/);});
-test('typed parameter in vertex stage and CPU preview agree',()=>{const g=defaultVertexGraph();g.nodes.push({id:'factor',op:'parameter',parameter:'u_scale'},{id:'scaled',op:'scale',inputs:{value:'position',factor:'factor'}});g.nodes[2].inputs.position='scaled';assert.match(compileVertexGraph(g,[{name:'u_scale',type:'FLOAT'}]).lines,/u_scale/);assert.deepEqual(evaluateVertexGraph(g,[3,4],[0,0],0,{u_scale:2}).position,[6,8]);assert.throws(()=>compileVertexGraph(g,[]),/未声明/);});
-test('SSBO ABI uses 16-byte slots; scalar integer payloads retain integer types',()=>{const layout=parameterLayout(['BOOL','INT','UINT','FLOAT','VEC2','VEC3','VEC4'].map((type,i)=>({name:'u_p'+i,type,scope:'instance'})));assert.deepEqual(layout.map(p=>p.slot),[0,1,2,3,4,5,6]);const f=buildRuntimeSources({...base,inputs:layout});assert.match(f.java.content,/putInt\(wf_instance,32,p2\)/);assert.match(f.vertex.content,/WF_PARAMETER_SLOTS=7/);assert.match(f.vertex.content,/flat out int wf_v_u_p0/);assert.match(f.vertex.content,/uintBitsToFloat/);assert.ok(!f.fragment.content.includes('gl_InstanceID'));});
-test('cross-stage instance declarations and viewport alpha are generated',()=>{const f=buildRuntimeSources({...base,inputs:[{name:'u_color',type:'VEC4',scope:'instance'}],fragment:base.fragment.replace('void main()', 'uniform vec4 u_color;\nvoid main()')});assert.match(f.fragment.content,/flat in vec4 wf_v_u_color/);assert.match(f.fragment.content,/fragColor.a \*= u_viewportAlpha/);assert.match(f.java.content,/extends WorkflowBatch/);assert.equal(JSON.parse(f.layout.content).stride,16);});
-test('export rejects unsafe paths and reserved names',()=>{assert.throws(()=>buildRuntimeSources({...base,config:{...base.config,shaderDir:'data/../escape'}}),/路径/);assert.throws(()=>parameterLayout([{name:'u_time',type:'FLOAT'}]),/保留/);assert.throws(()=>parameterLayout([{name:'u_x',type:'FLOAT'},{name:'u_x',type:'VEC2'}]),/重复/);});
-test('ZIP has valid directory offsets and UTF-8 file contents',()=>{const z=zipBytes([{filename:'src/test.java',content:'hello 中文'}]),v=new DataView(z.buffer);assert.equal(v.getUint32(0,true),0x04034b50);assert.equal(v.getUint32(z.length-22,true),0x06054b50);const offset=v.getUint32(z.length-6,true);assert.equal(v.getUint32(offset,true),0x02014b50);assert.equal(v.getUint16(z.length-12,true),1);});
-test('legacy vertex graph migrates to the shared graph format without losing links or parameter scope',()=>{
-  const old=defaultVertexGraph();old.nodes.push({id:'p',op:'parameter',parameter:'u_offset'},{id:'add',op:'add',inputs:{a:'position',b:'p'}});old.nodes[2].inputs.position='add';
-  const g=migrateVertexGraph(old,{nodes:[{typeId:'io.input',properties:{uniform:'u_offset',valueType:'VEC2',scope:'instance',defaultValue:'2,3'}}]});
-  assert.equal(g.outputNodeId,'output');assert.equal(g.nodes.find(n=>n.id==='p').properties.scope,'instance');assert.equal(g.links.find(l=>l.toNode==='output'&&l.toSocket==='position').fromNode,'add');
-  assert.deepEqual(migrateVertexGraph(g),g);assert.ok(!old.nodes[0].typeId);
-  assert.throws(()=>migrateVertexGraph(old),/未声明/);
-  assert.equal(supportsStage('noise.fbm','vertex'),true);assert.equal(supportsStage('io.output','vertex'),false);assert.equal(supportsStage('vertex.output','fragment'),false);
+import {supportsStage,stageNodes} from '../packages/workflow-tools/stages.mjs';
+import {exportFixture as base} from './module-export-fixture.mjs';
+import {validateParameterIds} from '../packages/starsector-contract/parameters.mjs';
+import {parameterId} from '../packages/workflow-tools/parameters.mjs';
+import {initExample} from '../plugins/starsector/java-material.mjs';
+import {runtimePackage,dependencySource,dependencyExportKey,dependencyExportState} from '../packages/starsector-contract/runtime.mjs';
+test('current geometry preserves zero scale and rejects retired vertex DAGs',async()=>{
+ const t=normalizeTransform({sx:0,vertices:[[10,20],[80,20],[15,90],[70,85]]});assert.equal(t.sx,0);assert.deepEqual(t.vertices[3],[70,85]);
+ assert.ok(t.graph.links.length===2);assert.ok(t.graph.nodes.every(n=>n.typeId));
+ assert.throws(()=>normalizeTransform({graph:{nodes:[{id:'position',op:'position'}],output:'position'}}),/nodes\/links/);
+ const duplicate=defaultVertexGraph();duplicate.nodes.push(duplicate.nodes[0]);assert.throws(()=>normalizeTransform({graph:duplicate}),/重复/);
+ await assert.rejects(()=>buildRuntimeSources({...base,vertex:null}),/结构化 IR/);
 });
-test('shared compiler compiles both vertex sinks once and rejects cycles / incomplete output',()=>{
-  const defs=[...stageNodes,{typeId:'input.uv',inputs:[],outputs:[{name:'uv',type:'VEC2'}]},{typeId:'math.add',inputs:[{name:'a',type:'VEC2'},{name:'b',type:'VEC2'}],outputs:[{name:'value',type:'VEC2'}]}];
-  const compiler=createWorkflowCompiler({nodeDef:n=>defs.find(d=>d.typeId===n.typeId),typeKey:t=>String(t).toUpperCase(),typeLabel:t=>String(t).toLowerCase(),variableBranchOwner:()=>null,customParameters:()=>null,textureSamplingFunctions:()=>''});
-  const g=migrateVertexGraph(defaultVertexGraph());g.nodes.push({id:'sum',typeId:'math.add',properties:{}});g.links=[{fromNode:'uv',fromSocket:'uv',toNode:'sum',toSocket:'a'},{fromNode:'position',fromSocket:'value',toNode:'sum',toSocket:'b'},...['position','uv'].map(toSocket=>({fromNode:'sum',fromSocket:'value',toNode:'output',toSocket}))];
-  const program=compiler.vertexStage(g);assert.equal(program.position,program.uv);assert.equal(program.lines.split('\n').length,1);
-  g.links[0].fromNode='sum';g.links[0].fromSocket='value';assert.throws(()=>compiler.vertexStage(g),/循环/);
-  g.links=g.links.filter(l=>l.toSocket!=='uv');assert.throws(()=>compiler.vertexStage(g),/缺少连接/);
+test('SSBO ABI uses 16-byte slots; scalar integer payloads retain integer types',async()=>{const layout=parameterLayout(['BOOL','INT','UINT','FLOAT','VEC2','VEC3','VEC4'].map((type,i)=>({name:'u_p'+i,type,scope:'instance'})));assert.deepEqual(layout.map(p=>p.slot),[0,1,2,3,4,5,6]);const f=await buildRuntimeSources({...base,inputs:layout});assert.match(f.java.content,/putInt\(wf_instance, 32, p2\)/);assert.match(f.vertex.content,/WF_PARAMETER_SLOTS = 7/);assert.match(f.vertex.content,/flat out int wf_v_u_p0/);assert.match(f.vertex.content,/uintBitsToFloat/);assert.ok(!f.fragment.content.includes('gl_InstanceID'));});
+test('cross-stage instance declarations and viewport alpha are generated',async()=>{const f=await buildRuntimeSources({...base,inputs:[{name:'u_color',type:'VEC4',scope:'instance'}],fragment:base.fragment});assert.match(f.fragment.content,/flat in vec4 wf_v_u_color/);assert.match(f.fragment.content,/u_viewportAlpha/);assert.match(f.java.content,/extends WorkflowRuntime/);assert.match(f.java.content,/requireApiVersion\(3\)/);});
+test('export rejects unsafe paths and reserved names',async()=>{await assert.rejects(()=>buildRuntimeSources({...base,config:{...base.config,shaderDir:'data/../escape'}}),/路径/);assert.throws(()=>parameterLayout([{name:'u_time',type:'FLOAT'}]),/保留/);assert.throws(()=>parameterLayout([{name:'u_x',type:'FLOAT'},{name:'u_x',type:'VEC2'}]),/重复/);});
+test('ZIP has valid directory offsets and UTF-8 file contents',async()=>{const z=zipBytes([{filename:'src/test.java',content:'hello 中文'}]),v=new DataView(z.buffer);assert.equal(v.getUint32(0,true),0x04034b50);assert.equal(v.getUint32(z.length-22,true),0x06054b50);const offset=v.getUint32(z.length-6,true);assert.equal(v.getUint32(offset,true),0x02014b50);assert.equal(v.getUint16(z.length-12,true),1);});
+test('shared compiler compiles both vertex sinks once and rejects cycles / incomplete output',async()=>{
+  const {compiler}=noiseHarness("glsl-430","vertex");
+  const g=defaultVertexGraph();g.nodes.push({id:'sum',canvasX:0,canvasY:0,typeId:'studio.math.add',properties:{valueType:'VEC2'}});g.links=[{fromNode:'uv',fromSocket:'uv',toNode:'sum',toSocket:'a'},{fromNode:'position',fromSocket:'value',toNode:'sum',toSocket:'b'},...['position','uv'].map(toSocket=>({fromNode:'sum',fromSocket:'value',toNode:'output',toSocket}))];
+  const program=compiler.lower(g,"vertex");assert.deepEqual(program.outputs.position,program.outputs.uv);assert.equal(program.body.filter(s=>s.origin.nodeId==='sum').length,1);assert.equal(program.body.length,3);
+  g.links[0].fromNode='sum';g.links[0].fromSocket='value';assert.throws(()=>compiler.lower(g,"vertex"),/循环|连接/);
+  g.links=g.links.filter(l=>l.toSocket!=='uv');assert.throws(()=>compiler.lower(g,"vertex"),/缺少连接/);
 });
-test('generated constructor contract follows parameter IDs, types, scopes and textures',()=>{
-  const f=buildRuntimeSources({...base,inputs:[{id:'tint',name:'u_color',type:'VEC4',scope:'instance'},{id:'speed',name:'u_speed',type:'FLOAT',scope:'shared'}],textures:[{id:'sprite',name:'u_texture',parameter:'ignoredOldName'}]});
-  assert.match(f.java.content,/SharedParameters\(float speed, SpriteAPI sprite\)/);
-  assert.match(f.java.content,/InstanceParameters\(Transform transform, Vector4f tint\)/);
-  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer,SharedParameters shared,InstanceParameters\.\.\. instances\)/);
-  assert.match(f.java.content,/set_tint\(instance,parameters.tint\)/);
-  assert.deepEqual(JSON.parse(f.layout.content).construction,{shared:['speed','sprite'],instance:['tint']});
-  const removed=buildRuntimeSources(base);assert.ok(!removed.java.content.includes('class SharedParameters'));
-  assert.match(removed.java.content,/InstanceParameters\(Transform transform\)/);
+test('generated constructor contract follows parameter IDs, types, scopes and textures',async()=>{
+  const f=await buildRuntimeSources({...base,inputs:[{id:'tint',name:'u_color',type:'VEC4',scope:'instance'},{id:'speed',name:'u_speed',type:'FLOAT',scope:'shared'}],textures:[{id:'sprite',name:'u_texture',parameter:'ignoredOldName'}]});
+  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer, List<Vector2f> positions, Vector4f\[\] tint, float speed, SpriteAPI sprite\)/);
+  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer, Vector2f position, Vector4f tint, float speed, SpriteAPI sprite\)/);
+  assert.match(f.java.content,/this\(layer, java.util.Collections.singletonList\(position\), new Vector4f\[\]\{tint\}, speed, sprite\)/);
+  assert.match(f.vertex.content,/uniform mat4 u_viewProjection/);
+  assert.doesNotMatch(f.vertex.content,/BUtilGlobalData|gameViewport/);
+  assert.doesNotMatch(f.java.content,/float\[\]\[\]/);
+  assert.throws(()=>parameterLayout([{name:'u_viewProjection',type:'VEC4'}]),/保留/);
+  assert.match(f.java.content,/requireLength\(tint, positions.size\(\), "tint"\)/);
+  assert.match(f.java.content,/set_tint\(wf_instance, tint\[wf_index\]\)/);
+  assert.deepEqual(Object.keys(f),['java','vertex','fragment']);
+  assert.match(f.java.content,/import data.method.WorkflowRuntime/);
+  assert.ok(!f.java.content.includes('private static void requireLength'));
+  assert.match(f.java.content,/releaseInstanceReferences\(\)/);
+  assert.match(f.java.content,/java.util.Arrays.fill\(configuredInstances, null\)/);
+  assert.ok(!f.java.content.includes('clearInstances();'));
+  assert.match(initExample(base.config,[],[]),/public void init\(CombatEngineAPI engine\)/);
+  assert.match(initExample(base.config,[],[],1),/new Vector2f\(100f, 100f\)/);
+  const removed=await buildRuntimeSources(base);assert.ok(!removed.java.content.includes('InstanceParameters'));
+  assert.match(removed.java.content,/TestEffect\(CombatEngineLayers layer, List<Vector2f> positions\)/);
   assert.equal(parameterId({id:'internal-id',properties:{uniform:'u_color',parameterId:'customColor'}}),'customColor');
 });
-test('parameter contract rejects ambiguous IDs across stages, keywords and reserved transform field',()=>{
+test('parameter contract rejects ambiguous IDs, keywords and reserved constructor arguments',async()=>{
   const p={id:'tint',name:'u_color',type:'VEC4',scope:'instance'};
   assert.doesNotThrow(()=>validateParameterIds([p,{...p}]));
   assert.throws(()=>validateParameterIds([p,{...p,name:'u_other'}]),/重复/);
   assert.throws(()=>validateParameterIds([p,{...p,id:'other'}]),/冲突/);
   assert.throws(()=>validateParameterIds([p,{...p,scope:'shared'}]),/冲突/);
-  for(const id of ['class','_','java','a-b','transform'])assert.throws(()=>validateParameterIds([{...p,id}]),/无效|保留/);
-  const f=buildRuntimeSources({...base,inputs:[{id:'wf_instance',name:'u_value',type:'FLOAT',scope:'instance'}]});
-  assert.match(f.java.content,/Instance wf_instance_,float wf_instance/);
+  for(const id of ['class','_','java','a-b','layer','position','positions'])assert.throws(()=>validateParameterIds([{...p,id}]),/无效|保留/);
+  const f=await buildRuntimeSources({...base,inputs:[{id:'wf_instance',name:'u_value',type:'FLOAT',scope:'instance'}]});
+  assert.match(f.java.content,/Instance wf_instance_, float wf_instance/);
+});
+test('geometry switches survive normalization and control the array ABI and vertex stage',async()=>{
+  const transform=normalizeTransform({sx:2,instanceInputs:{sx:{enabled:true,id:'widths'},rotation:{enabled:false,id:'angles'},v0x:{enabled:true,id:'leftCorners'}},parameterModes:{u_color:'shared'}});
+  assert.deepEqual(normalizeTransform(transform).instanceInputs,transform.instanceInputs);
+  const f=await buildRuntimeSources({...base,transform,inputs:[{id:'color',name:'u_color',type:'VEC4',scope:'instance'}]});
+  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer, List<Vector2f> positions, float\[\] widths, float\[\] leftCorners, Vector4f color\)/);
+  assert.match(f.vertex.content,/\(wf_geometry_position\)\.x = u_wf_geometry_v0x/);
+  assert.match(f.vertex.content,/wf_geometry_position/);
+  assert.match(f.vertex.content,/vec2\(u_wf_geometry_sx, 1.0\)/);
+  await assert.rejects(()=>buildRuntimeSources({...base,transform,inputs:[{id:'widths',name:'u_width',type:'FLOAT',scope:'shared'}]}),/重复/);
+  assert.throws(()=>normalizeTransform({parameterModes:{u_color:'unknown'}}),/无效/);
+});
+test('single source dependency uses the chosen package in its declaration and effect imports',async()=>{
+  assert.equal(runtimePackage('data\\method'),'data.method');
+  assert.equal(runtimePackage('data.method'),'data.method');
+  for(const path of ['../escape','/escape','C:\\escape','data/../escape','data//x','data/class','data/a-b'])assert.throws(()=>runtimePackage(path),/路径/);
+  assert.match(dependencySource('package data.method;\npublic class WorkflowRuntime {}','data/custom/render'),/^package data.custom.render;/);
+  const files=await buildRuntimeSources({...base,config:{...base.config,runtimePath:'data/custom/render'}});
+  assert.deepEqual(Object.keys(files),['java','vertex','fragment']);
+  assert.match(files.java.content,/import data.custom.render.WorkflowRuntime/);
+  const bytes=new Uint8Array([0,128,255,80,75]),zip=zipBytes([{filename:'lib.jar',content:bytes}]);
+  assert.deepEqual(zip.slice(30+'lib.jar'.length,30+'lib.jar'.length+bytes.length),bytes);
+});
+
+test('dependency upgrades require a new source export for the selected package and revision',async()=>{
+  const history={'data.method@1':true};
+  assert.equal(dependencyExportState('data/method',history),'outdated');
+  assert.equal(dependencyExportState('data/other',history),'missing');
+  history[dependencyExportKey('data.method')]=true;
+  assert.equal(dependencyExportState('data/method',history),'current');
+  assert.equal(dependencyExportState('data/method',null),'missing');
 });

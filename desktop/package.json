@@ -1,28 +1,83 @@
 {
   "name": "menggod-workflow-studio",
-  "version": "1.3.0",
+  "version": "1.0.0",
   "description": "MengGod GLSL workflow editor",
   "author": "Eb-Ling",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win portable",
+    "predist": "node ../build/build-ui.mjs"
   },
   "build": {
     "appId": "com.menggod.workflowstudio",
     "productName": "MengGod Workflow Studio",
-    "directories": { "output": "dist" },
-    "files": ["main.cjs", "preload.cjs"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "bridge-port.cjs",
+      "profile-storage.cjs",
+      "plugin-controller.cjs",
+      "project-controller.cjs",
+      "access-controller.cjs",
+      "mcp-credentials.cjs"
+    ],
     "icon": "../assets/workflow-studio.ico",
     "extraResources": [
-      { "from": "../frontend", "to": "frontend" },
-      { "from": "../ai-gateway", "to": "ai-gateway" },
-      { "from": "../AI_WORKFLOW_FORMAT.md", "to": "AI_WORKFLOW_FORMAT.md" },
-      { "from": "../assets", "to": "assets" }
+      {
+        "from": "../build/ui",
+        "to": "frontend"
+      },
+      {
+        "from": "../ai-gateway",
+        "to": "ai-gateway",
+        "filter": [
+          "**/*",
+          "!**/node_modules/**/*"
+        ]
+      },
+      {
+        "from": "../AI_WORKFLOW_FORMAT.md",
+        "to": "AI_WORKFLOW_FORMAT.md"
+      },
+      {
+        "from": "../assets",
+        "to": "assets"
+      },
+      {
+        "from": "../packages",
+        "to": "packages",
+        "filter": [
+          "**/*",
+          "!**/node_modules/**/*"
+        ]
+      },
+      {
+        "from": "../plugins",
+        "to": "plugins",
+        "filter": [
+          "**/*",
+          "!**/node_modules/**/*"
+        ]
+      }
     ],
-    "win": { "target": ["portable", "nsis"], "artifactName": "MengGod-Workflow-Studio-${version}-${arch}.${ext}", "signAndEditExecutable": false },
-    "nsis": { "oneClick": true, "perMachine": false, "allowToChangeInstallationDirectory": false }
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "artifactName": "MengGod-Workflow-Studio-${version}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
   },
   "devDependencies": {
     "electron": "^35.0.0",

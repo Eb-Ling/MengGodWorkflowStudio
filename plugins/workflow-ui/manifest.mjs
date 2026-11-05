@@ -1,0 +1,28 @@
+export const workflowUiManifest = {
+  id: "studio.workflow-ui",
+  layer: 3,
+  name: "工作流视图与检查器",
+  version: "1.0.0",
+  apiVersion: "1.0.0",
+  requiredApis: {
+    "studio.shortcuts": "^1.0.0",
+    "workflow.interaction": "^1.0.0",
+    "workflow.workspace": "^1.0.0",
+    "workflow.preview": "^1.0.0",
+    "studio.ui": "^1.0.0",
+  },
+  capabilities: [
+    "shortcuts.register",
+    "shortcuts.resolve",
+    "shortcuts.read",
+    "interaction.read",
+    "interaction.evaluate",
+    "interaction.configure",
+    "workflow.read",
+    "workflow.write",
+    "ui.status",
+    "ui.panels",
+    "ui.renderers",
+    "preview.render",
+  ],
+};

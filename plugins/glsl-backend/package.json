@@ -1,0 +1,13 @@
+{
+  "name": "@workflow-plugin/glsl-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/shader-ir": "workspace:*"
+  }
+}

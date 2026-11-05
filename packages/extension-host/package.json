@@ -1,0 +1,14 @@
+{
+  "name": "@workflow/extension-host",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./electron-runner": "./electron-runner.cjs",
+    "./task-runner": "./task-runner.cjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/plugin-runtime": "workspace:*"
+  }
+}

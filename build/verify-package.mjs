@@ -3,22 +3,16 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
+import {pluginDevkitBytes} from './package-plugin-devkit.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
 const {version}=JSON.parse(await fs.readFile(path.join(root,'desktop/package.json'),'utf8'));
-const output=path.join(root,'release',`MengGod-Workflow-Studio-${version}-win-x64`);
-let files=0;
-async function compare(relative){
-  for(const entry of await fs.readdir(path.join(root,relative),{withFileTypes:true})){
-    const child=path.join(relative,entry.name);
-    if(entry.isDirectory())await compare(child);
-    else {assert.deepEqual(await fs.readFile(path.join(root,child)),await fs.readFile(path.join(output,'resources',child)),child);files++;}
-  }
-}
-for(const folder of ['frontend','ai-gateway','assets'])await compare(folder);
-assert.deepEqual(await fs.readFile(path.join(root,'AI_WORKFLOW_FORMAT.md')),await fs.readFile(path.join(output,'resources/AI_WORKFLOW_FORMAT.md')));
-await assert.rejects(fs.access(path.join(output,'resources/frontend/vertex.js')));
-const child=spawn(path.join(output,'MengGod Workflow Studio.exe'),[path.join(output,'resources/ai-gateway/mcp-server.mjs')],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true});
+const releaseFolder=process.env.WORKFLOW_RELEASE_FOLDER||`MengGod-Workflow-Studio-${version}-win-x64`;
+if(path.basename(releaseFolder)!==releaseFolder||!releaseFolder.startsWith('MengGod-Workflow-Studio-'))throw Error('Invalid release folder');
+const output=path.join(root,'release',releaseFolder);
+await import("./verify-release-files.mjs");
+assert.deepEqual(new Uint8Array(await fs.readFile(path.join(output,'resources/frontend/assets/developer/workflow-plugin-devkit-1.0.0.zip'))),await pluginDevkitBytes(),'Packaged SDK differs from source/docs');
+const child=spawn(path.join(output,'MengGod Workflow Studio.exe'),[path.join(output,'resources/ai-gateway/mcp-client.mjs')],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true});
 const lines=createInterface({input:child.stdout});
 try{
   const result=await new Promise((resolve,reject)=>{
@@ -36,5 +30,5 @@ try{
   assert.ok(result.tools.some(tool=>tool.name==='workflow_set_stage'));
   const schema=result.tools.find(tool=>tool.name==='workflow_set_vertex_transform').inputSchema.properties.graph;
   assert.ok(schema.properties.links&&schema.properties.outputNodeId);
-  console.log(`PASS: ${files} packaged files match source; Electron stdio MCP exposes ${result.tools.length} tools and the shared-stage schema`);
+  console.log(`PASS: Electron stdio MCP exposes ${result.tools.length} tools and the shared-stage schema`);
 }finally{lines.close();child.kill();}

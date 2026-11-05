@@ -27,3 +27,5 @@ TESTING_README.txt
 
 # Reproducible test outputs
 build/verification/
+build/ui/
+.local-docs/

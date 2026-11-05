@@ -1,0 +1,12 @@
+{
+  "name": "@workflow/starsector-contract",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./parameters": "./parameters.mjs",
+    "./runtime": "./runtime.mjs",
+    "./export-api": "./export-api.mjs"
+  },
+  "dependencies": {}
+}

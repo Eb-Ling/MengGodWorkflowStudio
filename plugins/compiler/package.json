@@ -1,0 +1,14 @@
+{
+  "name": "@workflow-plugin/compiler",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/shader-ir": "workspace:*",
+    "@workflow/plugin-sdk": "workspace:*"
+  }
+}

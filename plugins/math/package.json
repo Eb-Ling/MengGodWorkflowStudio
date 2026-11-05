@@ -1,0 +1,17 @@
+{
+  "name": "@workflow-plugin/math",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs",
+    "./contribution": "./contribution.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*"
+  },
+  "scripts": {
+    "test": "node --test ../../build/p4-contract.test.mjs"
+  }
+}

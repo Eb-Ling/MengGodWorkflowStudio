@@ -1,0 +1,315 @@
+{
+  "kind": "studio.document",
+  "schemaVersion": 1,
+  "documentVersion": "1.0.0",
+  "revision": 0,
+  "project": {
+    "id": "instanced-wave-example",
+    "title": "实例波动四边形",
+    "className": "InstancedWavePlugin",
+    "shaderDir": "data/shaders/workflow",
+    "blendMode": "alpha"
+  },
+  "graphs": {
+    "fragment": {
+      "schemaVersion": 1,
+      "revision": 0,
+      "outputNodeId": "out",
+      "nodes": [
+        {
+          "id": "color",
+          "typeId": "io.input",
+          "title": "实例颜色",
+          "canvasX": 50,
+          "canvasY": 50,
+          "properties": {
+            "uniform": "u_color",
+            "scope": "shared",
+            "valueType": "VEC4",
+            "defaultValue": "1,0.3,0.1,1"
+          }
+        },
+        {
+          "id": "amplitude",
+          "typeId": "io.input",
+          "title": "实例波幅",
+          "canvasX": 50,
+          "canvasY": 300,
+          "properties": {
+            "uniform": "u_amplitude",
+            "scope": "shared",
+            "valueType": "FLOAT",
+            "defaultValue": "20"
+          }
+        },
+        {
+          "id": "out",
+          "typeId": "io.output",
+          "title": "片段输出",
+          "canvasX": 400,
+          "canvasY": 50,
+          "properties": {}
+        }
+      ],
+      "links": [
+        {
+          "fromNode": "color",
+          "fromSocket": "value",
+          "toNode": "out",
+          "toSocket": "color"
+        }
+      ]
+    },
+    "vertex": {
+      "revision": 0,
+      "outputNodeId": "output",
+      "nodes": [
+        {
+          "id": "position",
+          "typeId": "input.position",
+          "canvasX": 20,
+          "canvasY": 20,
+          "properties": {
+            "valueType": "VEC2",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "uv",
+          "typeId": "input.uv",
+          "canvasX": 20,
+          "canvasY": 600,
+          "properties": {
+            "valueType": "VEC2",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "time",
+          "typeId": "input.time",
+          "canvasX": 20,
+          "canvasY": 200,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "x",
+          "typeId": "studio.math.vector.split",
+          "canvasX": 260,
+          "canvasY": 20,
+          "properties": {
+            "valueType": "VEC2",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "frequency",
+          "typeId": "studio.math.constant",
+          "canvasX": 20,
+          "canvasY": 400,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false,
+            "value": "0.02"
+          }
+        },
+        {
+          "id": "phase",
+          "typeId": "studio.math.multiply",
+          "canvasX": 500,
+          "canvasY": 20,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "moving",
+          "typeId": "studio.math.add",
+          "canvasX": 500,
+          "canvasY": 230,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "sine",
+          "typeId": "studio.math.sin",
+          "canvasX": 740,
+          "canvasY": 20,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "amplitude",
+          "typeId": "io.input",
+          "canvasX": 740,
+          "canvasY": 230,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false,
+            "uniform": "u_amplitude",
+            "scope": "shared",
+            "defaultValue": "20"
+          }
+        },
+        {
+          "id": "wave",
+          "typeId": "studio.math.multiply",
+          "canvasX": 980,
+          "canvasY": 20,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "zero",
+          "typeId": "studio.math.constant",
+          "canvasX": 740,
+          "canvasY": 420,
+          "properties": {
+            "valueType": "FLOAT",
+            "previewEnabled": false,
+            "value": "0"
+          }
+        },
+        {
+          "id": "offset",
+          "typeId": "studio.math.vector.combine",
+          "canvasX": 980,
+          "canvasY": 230,
+          "properties": {
+            "valueType": "VEC2",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "deformed",
+          "typeId": "studio.math.add",
+          "canvasX": 1220,
+          "canvasY": 20,
+          "properties": {
+            "valueType": "VEC2",
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "output",
+          "typeId": "vertex.output",
+          "canvasX": 1220,
+          "canvasY": 420,
+          "properties": {
+            "valueType": "VEC2",
+            "previewEnabled": false
+          }
+        }
+      ],
+      "links": [
+        {
+          "fromNode": "position",
+          "fromSocket": "value",
+          "toNode": "x",
+          "toSocket": "value"
+        },
+        {
+          "fromNode": "x",
+          "fromSocket": "x",
+          "toNode": "phase",
+          "toSocket": "a"
+        },
+        {
+          "fromNode": "frequency",
+          "fromSocket": "value",
+          "toNode": "phase",
+          "toSocket": "b"
+        },
+        {
+          "fromNode": "phase",
+          "fromSocket": "value",
+          "toNode": "moving",
+          "toSocket": "a"
+        },
+        {
+          "fromNode": "time",
+          "fromSocket": "time",
+          "toNode": "moving",
+          "toSocket": "b"
+        },
+        {
+          "fromNode": "moving",
+          "fromSocket": "value",
+          "toNode": "sine",
+          "toSocket": "x"
+        },
+        {
+          "fromNode": "sine",
+          "fromSocket": "value",
+          "toNode": "wave",
+          "toSocket": "a"
+        },
+        {
+          "fromNode": "amplitude",
+          "fromSocket": "value",
+          "toNode": "wave",
+          "toSocket": "b"
+        },
+        {
+          "fromNode": "zero",
+          "fromSocket": "value",
+          "toNode": "offset",
+          "toSocket": "x"
+        },
+        {
+          "fromNode": "wave",
+          "fromSocket": "value",
+          "toNode": "offset",
+          "toSocket": "y"
+        },
+        {
+          "fromNode": "position",
+          "fromSocket": "value",
+          "toNode": "deformed",
+          "toSocket": "a"
+        },
+        {
+          "fromNode": "offset",
+          "fromSocket": "value",
+          "toNode": "deformed",
+          "toSocket": "b"
+        },
+        {
+          "fromNode": "deformed",
+          "fromSocket": "value",
+          "toNode": "output",
+          "toSocket": "position"
+        },
+        {
+          "fromNode": "uv",
+          "fromSocket": "uv",
+          "toNode": "output",
+          "toSocket": "uv"
+        }
+      ]
+    }
+  },
+  "geometry": {
+    "vertices": [
+      [-100, -60],
+      [100, -60],
+      [-100, 60],
+      [100, 60]
+    ],
+    "tx": 0,
+    "ty": 0,
+    "sx": 1,
+    "sy": 1,
+    "rotation": 0
+  },
+  "requiredPlugins": {}
+}

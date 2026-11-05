@@ -1,111 +1,195 @@
-# AI 工作流文件格式
+# AI 工作流文件格式：v1.0
 
-AI 不需要直接操作编辑器，也不需要 MCP。只要根据本文档输出一个 UTF-8 JSON 文件，用户在编辑器点击“导入工作流”即可。
+只支持当前 `studio.document` 格式。旧 `graph/vertexTransform` 文件、旧顶点 `op/inputs` DAG、旧节点 ID 和旧自定义 GLSL 表达式协议均不转换。用户在界面选择 UTF-8 JSON 文件导入，校验失败不会替换当前草稿。
 
-页面内也提供可选的 MCP 桥接设置：打开“工作流”窗口，填写桥接端口并点击“检测桥接”，随后可点击“显示 MCP 配置与接入提示”。浏览器/源码版需要用户启动桥接服务；桌面 EXE 会自动启动页面桥接，并在提示中给出当前真实端口与无需 Node.js 的 Electron 配置。stdio MCP 服务始终由 MCP 客户端按需启动。
-
-MCP 读取和编辑的是用户明确激活的编辑器草稿，不要求先保存。页面加载和后台同步不会自动激活；用户必须在目标页面点击画布或“工作流 -> 激活当前草稿”，新开的观察页面不会覆盖它。Agent 应依次调用 `workflow_get_status`、`workflow_get_summary`，按需读取节点目录，携带 `expectedRevision` 提交修改，再读取摘要验证。正常摘要会排除纹理预览 Base64、生成源码和完整资源库；`workflow_get_current` 仅用于明确需要完整诊断时。服务同时提供 `workflow_*` 工具和 `workflow://active/summary` 只读资源。客户端未显示工具时，应重新加载 MCP 会话，而不是用 shell 手工发送 JSON-RPC。除非用户明确要求，不得调用打开、创建、导入或重置工作流的操作。完整清单见 `ai-gateway/README.md`。
-
-## 布尔与分支
-
-端口类型支持 `BOOL`、`FLOAT`、`VEC2`、`VEC3`、`VEC4`。使用 `logic.equal`、`logic.notEqual`、`logic.greater`、`logic.greaterEqual`、`logic.less`、`logic.lessEqual`、`logic.and`、`logic.or`、`logic.not` 生成 `BOOL`，并连接到 `logic.if` 的 `condition`。
-
-`logic.if` 的 TRUE/FALSE 框是布局分区。若要从分支带出数值，使用 `logic.variable`：`init` 是分支前初始化输入，可连接其他节点，未连接时使用 `initialValue`（默认 `0.0`）；`value` 是分支内修改输入。变量可以作为分支出口放在框外，并自动继承 `value` 输入来源的分支；变量输出可在分区外使用。变量的 `valueType` 可为五种数据类型；不保存也不要求 `ifId`、`branchIfId` 或 `branch`。生成 GLSL 会按依赖顺序生成初始化、`if/else` 内赋值和分支外消费者。不要把分区内的普通计算节点直接跨区连到分区外。
-
-## 最小结构
+## 完整可导入示例
 
 ```json
 {
+  "kind": "studio.document",
   "schemaVersion": 1,
+  "documentVersion": "1.0.0",
+  "revision": 0,
   "project": {
-    "id": "energy_cloud",
-    "title": "Energy Cloud",
-    "className": "EnergyCloudPlugin",
+    "id": "simple_effect",
+    "title": "示例特效",
+    "className": "SimpleEffect",
     "shaderDir": "data/shaders/generated",
-    "previewWidth": 1024,
-    "previewHeight": 1024
+    "runtimePath": "data/method",
+    "previewWidth": 512,
+    "previewHeight": 512
   },
-  "graph": {
-    "schemaVersion": 1,
-    "revision": 0,
-    "outputNodeId": "output_1",
-    "nodes": [],
-    "links": []
+  "graphs": {
+    "vertex": {
+      "revision": 0,
+      "outputNodeId": "output",
+      "nodes": [
+        {
+          "id": "position",
+          "typeId": "input.position",
+          "canvasX": 30,
+          "canvasY": 40,
+          "properties": {
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "uv",
+          "typeId": "input.uv",
+          "canvasX": 30,
+          "canvasY": 220,
+          "properties": {
+            "previewEnabled": false
+          }
+        },
+        {
+          "id": "output",
+          "typeId": "vertex.output",
+          "canvasX": 700,
+          "canvasY": 100,
+          "properties": {
+            "previewEnabled": false
+          }
+        }
+      ],
+      "links": [
+        {
+          "fromNode": "position",
+          "fromSocket": "value",
+          "toNode": "output",
+          "toSocket": "position"
+        },
+        {
+          "fromNode": "uv",
+          "fromSocket": "uv",
+          "toNode": "output",
+          "toSocket": "uv"
+        }
+      ]
+    },
+    "fragment": {
+      "revision": 0,
+      "outputNodeId": "output",
+      "nodes": [
+        {
+          "id": "color",
+          "typeId": "io.input",
+          "title": "颜色",
+          "canvasX": 80,
+          "canvasY": 120,
+          "properties": {
+            "uniform": "u_color",
+            "parameterId": "color",
+            "valueType": "VEC4",
+            "scope": "shared",
+            "defaultValue": "1,0.3,0.1,1",
+            "previewEnabled": true
+          }
+        },
+        {
+          "id": "output",
+          "typeId": "io.output",
+          "title": "片段输出",
+          "canvasX": 400,
+          "canvasY": 120,
+          "properties": {}
+        }
+      ],
+      "links": [
+        {
+          "fromNode": "color",
+          "fromSocket": "value",
+          "toNode": "output",
+          "toSocket": "color"
+        }
+      ]
+    }
   },
-  "vertexTransform": {
-    "vertices": [[-180,-90],[180,-90],[-180,90],[180,90]],
+  "geometry": {
+    "vertices": [
+      [
+        -180,
+        -90
+      ],
+      [
+        180,
+        -90
+      ],
+      [
+        -180,
+        90
+      ],
+      [
+        180,
+        90
+      ]
+    ],
     "tx": 0,
     "ty": 0,
     "sx": 1,
     "sy": 1,
-    "rotation": 0
-  }
+    "rotation": 0,
+    "instanceInputs": {},
+    "parameterModes": {}
+  },
+  "requiredPlugins": {}
 }
 ```
 
-## 节点格式
+## 文档与节点规则
 
-```json
-{
-  "id": "unique_node_id",
-  "typeId": "input.uv",
-  "title": "UV",
-  "canvasX": 120,
-  "canvasY": 180,
-  "properties": { "previewEnabled": true }
-}
-```
+- 顶层必须包含 kind、schemaVersion、documentVersion、revision、project、graphs、geometry、requiredPlugins，版本分别固定为 studio.document、1、1.0.0。revision 是非负整数。
+- graphs.vertex 和 graphs.fragment 都必须存在，各自使用 nodes、links、outputNodeId、revision。节点 id 在所属阶段唯一，canvasX/canvasY 为数字，properties 为对象。
+- 只使用当前节点目录提供的 typeId、端口和属性。节点标题用于显示，连线通过节点 id 和端口 name 建立。一个输入最多一条连线。
+- 顶点入口 input.position.value、input.uv.uv 为 VEC2，vertex.output.position 和 uv 都要连接。片段结果以 VEC4 接 io.output.color，并指定 outputNodeId。
+- 插件节点保存 plugin: {id,version} 和 portSnapshot: {inputs,outputs}。requiredPlugins 必须与两个阶段节点的精确来源一致，同一插件记录不同版本时拒绝导入。正常编辑会自动维护此映射。当前插件缺失或来源、版本、端口不匹配时保留节点与连线，影响输出时阻止编译，并在 dependencyDiagnostics 中报告原因。不会自动改写记录或转换版本。
+- 几何与图数据分别位于 geometry 和 graphs，geometry 内不放 graph。示例直接使用当前格式，不依赖加载时迁移。
 
-`id` 在文件内必须唯一；`typeId` 必须是编辑器节点目录中的稳定 ID；`canvasX/canvasY` 必须是数字。标题只用于显示，不参与编译。
+## Noise 节点
 
-## 连线格式
+只使用 `studio.noise.value`、`studio.noise.fbm`、`studio.noise.simplex`、`studio.noise.perlin`、`studio.noise.fbmSimplex`、`studio.noise.worley`、`studio.noise.fbmWorley`、`studio.noise.turbulence`、`studio.noise.turbulize`、`studio.noise.turbulence3`。插件 ID 为 studio.noise，版本 1.0.0。noise.* 不再映射。
 
-```json
-{
-  "fromNode": "uv_1",
-  "fromSocket": "uv",
-  "toNode": "center_1",
-  "toSocket": "uv"
-}
-```
+UV 类输入为 VEC2，turbulize 输入 noise 为 FLOAT，turbulence3 输入 x/y/z 为 FLOAT。具体以实时目录为准。二维 Simplex 是有符号梯度噪声，fbmSimplex 叠加五层，FBM 的 scale 默认 4，允许 -10000 至 10000 的有限数，octaves 属性默认 5。连接 octaves 端口时以连接值为准（包括 0），向下取整并截断至 0–8 层，无连接时使用属性。scale=0 合法。两阶段与双目标共用同一 IR。
 
-只能连接真实节点和端口，输入端口最多一条连线。完整片段工作流应让最终 `VEC4` 节点连接到 `io.output.color`，并设置 `graph.outputNodeId`。
+## 参数与实例数组
+
+io.input 的 properties 包含 parameterId、uniform、valueType、scope、defaultValue。valueType 可为 BOOL/INT/UINT/FLOAT/VEC2/VEC3/VEC4，scope 为 shared 或 instance。自动推导使用显式 AUTO。同一 uniform 在两阶段的参数 ID、类型与作用域必须一致，不同 uniform 不能占用同一参数 ID。
+
+导出提供两种构造器：单点以 CombatEngineLayers layer、Vector2f position 开头，批量以 CombatEngineLayers layer、List<Vector2f> positions 开头，每个向量创建一个实例。之后依次传几何参数、节点参数和纹理。单点入口的所有参数传单值，批量入口的 shared 传单值、instance 传同类型数组，长度须等于 positions.size()。纹理传单个 SpriteAPI。位置更新使用 instance(i).setPosition(Vector2f)。
+
+geometry.instanceInputs 的每项为 {enabled,id}，支持 tx、ty、sx、sy、rotation、v0x/v0y 至 v3x/v3y，开启后批量构造器生成具名 float[]、单点构造器生成 float，关闭使用面板固定值。geometry.parameterModes 按 uniform 名覆盖 shared/instance。旋转单位为度，零缩放合法。
+
+project.runtimePath 是共享依赖源码包路径，如 data/method。首次导出先下载该包路径的单个 WorkflowRuntime.java，每个特效另导出一个 Java 和两个 shader。下载记录不代表已安装到 Mod。完整构造器与 init 示例在工作流配置中显示，输入数组在构造时复制，后续用 instance(i) 与具名 setter 更新，markExpired() 结束批次。
+
+## 控制流与自定义 GLSL
+
+比较/逻辑节点输出 BOOL，连接 logic.if.condition。分支结果通过 logic.variable.value 带出，init 在分支前初始化。分支归属从画布区域与连线推导，不填写 ifId/branchIfId/branch。
+
+自定义节点只使用 properties.parameters 与 code，parameters 项包含 id/name/type/qualifier，qualifier 为 in/out/inout。out/inout 必须在函数体赋值，允许明确的 helperSource。必须提供 properties.sourceTargets 数组，选择 glsl-es-300（预览）与/或 glsl-430（导出），不支持某个目标时明确报错。通过主编辑器“创建自定义 GLSL 节点”或公开 workflow_upsert_custom_node 提供定义，旧 expression 协议拒绝。
+
+## MCP 与调用顺序
+
+MCP 是内置插件，共 41 个具名工具，stdio 入口为 plugins/mcp/stdio.mjs。插件设置中的 MCP 面板给出真实端口和桌面配置，停用不影响普通编辑。workflow_edit 自动补齐节点默认值/可读 ID 并原子提交常见图编辑，workflow_set_node_property 使用检查器校验，workflow_inspect 返回字段说明。workflow_get_export_configuration 可读取几何字段与依赖路径、试算参数修改，不提交文档，需要当前草稿守卫。旧 ai-gateway/mcp-server.mjs 和 workflow_apply_action 已删除。
+
+先 workflow_get_status，再 workflow_get_summary，按需读取节点目录。修改携带同一摘要中的 documentId=project.id、documentToken、stage、expectedRevision=graph.revision。跨阶段 workflow_document_transaction 还需 expectedDocumentRevision，commands 每项指定 stage。修改后重读验证，保存/下载等 IO 不放入图事务。
+
+MCP 操作用户激活的草稿。除非用户明确要求，不调用创建、打开、导入或重置。没有可用活动页面时让用户激活目标页，不开隐藏页面代替。普通读取不要索取纹理 Base64 或生成源码。
 
 ## 给 AI 的提示词
 
 ```text
-请根据 docs/AI_WORKFLOW_FORMAT.md 生成一个 UTF-8、严格 JSON 工作流文件。
-只使用我提供的节点 typeId、端口名和属性格式；不要输出 Markdown、注释或解释文字。
-节点 id 必须唯一，所有 fromNode/toNode 必须存在，连线端口必须存在且类型兼容。
-不要使用示例专用节点名；标题可以是中文，但编译依赖 typeId 和连线。
-最后将片段颜色以 VEC4 连接到 io.output.color，并设置 outputNodeId。
-需求：<在这里填写效果>
+根据当前 v1.0 文档格式生成一个严格 UTF-8 JSON 文件。
+只用提供的当前节点目录，包含 graphs.vertex 和 graphs.fragment，不要转换旧格式。
+节点 ID 和端口必须真实且唯一，连线类型一致，两阶段都连接正确的输出。
+参数 ID 使用有效 Java 标识符，跨阶段声明一致。
+只输出 JSON，不输出 Markdown、解释或注释。
+需求：<填写效果>
 ```
 
-编辑器导入时会检查 schemaVersion、项目配置、节点 ID、节点类型、坐标以及连线引用；失败只显示错误，不会覆盖当前工作流。导入成功后会作为新的已保存工作流写入本地工作流库。
+## Math 与 SDF 的当前 ID
 
-## 排版建议
+节点类型使用 studio.math.*、studio.math.vector.*、studio.sdf.*、studio.sdf.shape.* 和 studio.sdf.curve.*，例如 studio.math.add、studio.math.vector.combine、studio.sdf.box。通过当前 catalog 获取节点定义，不推测 ID。插件动态端口随 valueType 解析，文档 portSnapshot 保存实际解析后的端口，以支持插件停用后保留连线。
 
-为了让 AI 生成的画布更易读，按数据流从左到右排版：输入节点放在 `canvasX=80` 附近，每个逻辑阶段增加约 `240~300`，同一阶段的节点使用不同 `canvasY`（建议间隔 `110~150`）。节点坐标只是编辑器布局，不影响 GLSL 结果；也可以通过 MCP 的 `workflow_auto_layout` 自动整理。
+高清预览：workflow_render_preview 默认返回 text 元数据和标准 MCP image/png，AI 可直接读图。longEdge 为 64—4096，按当前画布宽高比重新渲染，与 width/height 互斥，不改变项目尺寸。显式 format:data 返回含 dataUrl 的 JSON，供逐像素分析。workflow_open_preview 打开编辑器视框，默认长边 2048。两工具均需四项守卫，常规快照不含图片，超大结果会要求降低尺寸。
 
-## 1.2.0：共享阶段图和实例参数
-
-- graph 保存片段图；vertexTransform.graph 保存顶点图。两者均为 {nodes, links, outputNodeId, revision}，节点共用 id/typeId/title/canvasX/canvasY/properties，连线共用 fromNode/fromSocket/toNode/toSocket。
-- 顶点入口 input.position 的 value 为 VEC2；input.uv 的 uv 为 VEC2。出口 vertex.output 具有 position、uv 两个 VEC2 输入，必须全部连接。片段图使用 io.output 的 color 输入，阶段专用节点不能放入另一阶段。
-- 数学、向量、纹理、噪声、控制流、io.input 和自定义 GLSL 节点共用。io.input.properties.scope 为 shared 或 instance；valueType 支持 BOOL/INT/UINT/FLOAT/VEC2/VEC3/VEC4 的运行时参数。可在任意阶段声明，同名参数必须类型和作用域一致，导出只生成一个 setter / ABI 槽位。
-- vertexTransform 保留 vertices、tx、ty、sx、sy、rotation；零缩放有效。省略 graph 使用直通顶点图。旧 {nodes:[{op,inputs,...}],output} 图仍能导入，自动迁移后保存为通用图；旧 parameter 通过片段图中同名 io.input 解析类型与作用域。
-- workflow_get_summary / workflow_get_current 的 stage 标明当前阶段，graph 是当前正在编辑的图。workflow_set_stage({stage:"vertex"}) 切换后，普通节点命令、选区、视图、SET_OUTPUT 等均操作顶点图；节点目录随阶段过滤。
-- workflow_set_vertex_transform 支持提交完整通用顶点图。workflow_export_runtime 在任意阶段导出整项目：Java、两个 GLSL、共用运行时、参数布局及使用说明，界面下载单个 ZIP。
-- 几何预览使用两张图的 WebGL2 编译结果。实例属性在顶点读取 SSBO，经 flat 接口按需传到片段；片段不使用 gl_InstanceID。
-
-## 1.3.0：节点参数驱动构造接口
-
-io.input 和 input.texture 可设置 properties.parameterId；此值就是节点卡片与检查器显示的参数 ID，以及导出的 Java 字段名、构造形参名和 set_<ID> 名称。它不改变节点内部 id、连线引用或 properties.uniform。旧图缺少该属性时，以 uniform 去掉 u_ 为默认值；新建节点会自动分配独立 ID。
-
-parameterId 必须为有效的非保留 Java 标识符。同 uniform 的重复引用必须 ID、类型、作用域全部一致；不同 uniform 不可使用同一个 parameterId。instance 作用域的 transform 保留给变换配置。
-
-导出 Plugin(layer, SharedParameters shared, InstanceParameters... instances)。没有共享输入或纹理时省略 SharedParameters。每个实例配置构造函数要求 Transform 加全部 instance 输入，共享配置要求全部 shared 输入与纹理；顺序与 parameter-layout.json 的 construction 字段一致。配置字段按节点自动拓展，类型与节点一致，不使用无类型 Map 或字符串参数包。
-
-Transform(x,y) 默认角度 0、缩放 1；完整形式为 Transform(x,y,angle,scaleX,scaleY)。传入几份实例配置就创建几个实例，构造器内部完成参数上传前的 CPU 初始化，不创建额外默认实例。所有输入必填，省略字段会产生 Java 编译错误；预览默认值不会替代调用参数。原 1.2 的构造函数不再生成。
-
-参数布局 version 升为 2，parameters 记录 id 与 name（GLSL uniform），textures 记录纹理参数 ID，construction 记录两类配置的形参顺序。Java 类同时提供 instance(index) 与按参数 ID 命名的 setter，用于可选的后续更新。
+首次导出调用 workflow_export_runtime_dependency，可指定 runtimePath，例如 data/method，返回公共依赖原始源码并记录路径。随后 workflow_export_runtime 返回 java/vertex/fragment 三个文件，等待统一保存成功，不触发浏览器下载。取得依赖源码不代表已安装到游戏。

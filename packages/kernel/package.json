@@ -1,0 +1,12 @@
+{
+  "name": "@workflow/kernel",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*"
+  }
+}

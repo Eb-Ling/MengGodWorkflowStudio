@@ -1,0 +1,16 @@
+{
+  "name": "@workflow-plugin/example-showcase",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.ts",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/example-layout-api": "workspace:*",
+    "@workflow/tools-contract": "workspace:*",
+    "vue": "3.5.44"
+  }
+}

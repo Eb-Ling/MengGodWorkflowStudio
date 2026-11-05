@@ -1,0 +1,147 @@
+export function presetWorkflowNodes() {
+  const constant = (id, title, x, y, value) => ({
+    id,
+    typeId: "studio.math.constant",
+    title,
+    canvasX: x,
+    canvasY: y,
+    properties: {
+      value: String(value),
+      previewEnabled: false,
+      valueType: "FLOAT",
+    },
+  });
+  return [
+    {
+      id: "preset.horizontalFade",
+      title: "横向淡出",
+      preset: true,
+      description: "由 UV、拆分向量、两个正序 smoothstep、取反和乘法组成",
+      graph: {
+        nodes: [
+          {
+            id: "wf_uv",
+            typeId: "input.uv",
+            title: "UV 坐标",
+            canvasX: 0,
+            canvasY: 0,
+            properties: { previewEnabled: true },
+          },
+          {
+            id: "wf_split",
+            typeId: "studio.math.vector.split",
+            title: "拆分 UV",
+            canvasX: 230,
+            canvasY: 0,
+            properties: { previewEnabled: true, valueType: "VEC2" },
+          },
+          constant("wf_l0", "左边界 0.0", 260, -130, 0),
+          constant("wf_l1", "左边界 0.15", 260, -75, 0.15),
+          constant("wf_r0", "右边界 0.85", 260, 135, 0.85),
+          constant("wf_r1", "右边界 1.0", 260, 190, 1),
+          constant("wf_one", "取反基值 1.0", 460, 290, 1),
+          {
+            id: "wf_left",
+            typeId: "studio.math.smoothstep",
+            title: "左侧淡入",
+            canvasX: 460,
+            canvasY: -70,
+            properties: { previewEnabled: true, valueType: "FLOAT" },
+          },
+          {
+            id: "wf_right",
+            typeId: "studio.math.smoothstep",
+            title: "右侧正序过渡",
+            canvasX: 460,
+            canvasY: 90,
+            properties: { previewEnabled: true, valueType: "FLOAT" },
+          },
+          {
+            id: "wf_inverse",
+            typeId: "studio.math.subtract",
+            title: "右侧淡出（1 - 过渡）",
+            canvasX: 700,
+            canvasY: 130,
+            properties: { previewEnabled: true, valueType: "FLOAT" },
+          },
+          {
+            id: "wf_multiply",
+            typeId: "studio.math.multiply",
+            title: "横向淡出",
+            canvasX: 940,
+            canvasY: 10,
+            properties: { previewEnabled: true, valueType: "FLOAT" },
+          },
+        ],
+        links: [
+          {
+            fromNode: "wf_uv",
+            fromSocket: "uv",
+            toNode: "wf_split",
+            toSocket: "value",
+          },
+          {
+            fromNode: "wf_split",
+            fromSocket: "x",
+            toNode: "wf_left",
+            toSocket: "x",
+          },
+          {
+            fromNode: "wf_l0",
+            fromSocket: "value",
+            toNode: "wf_left",
+            toSocket: "edge0",
+          },
+          {
+            fromNode: "wf_l1",
+            fromSocket: "value",
+            toNode: "wf_left",
+            toSocket: "edge1",
+          },
+          {
+            fromNode: "wf_split",
+            fromSocket: "x",
+            toNode: "wf_right",
+            toSocket: "x",
+          },
+          {
+            fromNode: "wf_r0",
+            fromSocket: "value",
+            toNode: "wf_right",
+            toSocket: "edge0",
+          },
+          {
+            fromNode: "wf_r1",
+            fromSocket: "value",
+            toNode: "wf_right",
+            toSocket: "edge1",
+          },
+          {
+            fromNode: "wf_left",
+            fromSocket: "value",
+            toNode: "wf_multiply",
+            toSocket: "a",
+          },
+          {
+            fromNode: "wf_one",
+            fromSocket: "value",
+            toNode: "wf_inverse",
+            toSocket: "a",
+          },
+          {
+            fromNode: "wf_right",
+            fromSocket: "value",
+            toNode: "wf_inverse",
+            toSocket: "b",
+          },
+          {
+            fromNode: "wf_inverse",
+            fromSocket: "value",
+            toNode: "wf_multiply",
+            toSocket: "b",
+          },
+        ],
+      },
+    },
+  ];
+}

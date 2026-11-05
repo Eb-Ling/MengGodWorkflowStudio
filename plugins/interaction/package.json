@@ -1,0 +1,13 @@
+{
+  "name": "@workflow-plugin/interaction",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/tools-contract": "workspace:*"
+  }
+}

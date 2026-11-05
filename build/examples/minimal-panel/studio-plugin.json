@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "example.minimal-panel",
+  "name": "教学：最小面板",
+  "version": "1.0.0",
+  "apiVersion": "1.0.0",
+  "layer": 3,
+  "kind": "extension",
+  "entry": "index.mjs",
+  "exportName": "plugin",
+  "requiredApis": { "studio.extension-ui": "^1.0.0" },
+  "capabilities": ["extension.ui"]
+}

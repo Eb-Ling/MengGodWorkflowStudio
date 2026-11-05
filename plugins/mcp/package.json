@@ -1,0 +1,22 @@
+{
+  "name": "@workflow-plugin/mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./browser": "./browser-plugin.ts",
+    "./server": "./server-plugin.mjs",
+    "./stdio": "./stdio.mjs",
+    "./self-test": "./self-test.cjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "vue": "3.5.44",
+    "@workflow/tools-contract": "workspace:*"
+  },
+  "studioNodeImports": {
+    "./stdio.mjs": [
+      "node:readline"
+    ]
+  }
+}

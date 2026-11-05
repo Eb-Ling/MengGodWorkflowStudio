@@ -1,0 +1,52 @@
+const local = (methods) => ({
+  version: "1.0.0",
+  transport: "local",
+  scoped: true,
+  methods: Object.fromEntries(
+    Object.entries(methods).map(([name, capability]) => [name, { capability }]),
+  ),
+});
+export const workspaceManifest = {
+  id: "studio.workspace",
+  layer: 2,
+  name: "工作区操作与会话",
+  version: "1.0.0",
+  apiVersion: "1.0.0",
+  requiredApis: {
+    "workflow.editor": "^1.0.0",
+    "platform.workspace-execution": "^1.0.0",
+    "platform.browser": "^1.0.0",
+  },
+  optionalApis: {
+    "workflow.export": "^1.0.0",
+    "workflow.project-files": "^1.0.0",
+    "workflow.templates": "^1.0.0",
+    "workflow.layout": "^1.0.0",
+  },
+  capabilities: [
+    "workflow.read",
+    "workflow.write",
+    "workspace.host",
+    "project.files",
+    "export.read",
+    "export.write",
+    "templates.use",
+    "layout.use",
+    "ui.status",
+  ],
+  providesApis: {
+    "workflow.workspace": local({
+      snapshot: "workflow.read",
+      execute: "workflow.write",
+      subscribe: "workflow.read",
+      onActivity: "workflow.read",
+      inspect: "workflow.read",
+      edit: "workflow.write",
+      addNode: "workflow.write",
+      setProperty: "workflow.write",
+      report: "ui.status",
+      activity: "workflow.read",
+      preferences: "workflow.read",
+    }),
+  },
+};

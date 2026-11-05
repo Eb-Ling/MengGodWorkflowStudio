@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1, "id": "local.native-window", "name": "教学：独立窗口与受限能力",
+  "version": "1.0.0", "apiVersion": "1.0.0", "kind": "extension", "entry": "index.mjs", "exportName": "plugin",
+  "requiredApis": { "platform.extension": "^1.0.0", "workflow.editor": "^1.0.0" },
+  "capabilities": ["extension.window", "extension.files", "extension.tasks", "extension.network", "workflow.read", "workflow.write"],
+  "isolation": { "window": { "width": 760, "height": 680 }, "networkOrigins": ["https://example.com"] }
+}

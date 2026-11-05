@@ -1,0 +1,27 @@
+/** 双阶段共用声明，执行通过公开工作流 API，服务不导入本插件。 */
+export const graphShortcuts = [
+  ["select-all", "全选节点", ["Mod+A"]],
+  ["deselect", "取消选择", ["Mod+Shift+A"]],
+  ["copy", "复制节点", ["Mod+C"]],
+  ["cut", "剪切节点", ["Mod+X"]],
+  ["paste", "粘贴节点", ["Mod+V"]],
+  ["duplicate", "复制并粘贴节点", ["Mod+D"]],
+  ["undo", "撤销", ["Mod+Z"]],
+  ["redo", "重做", ["Mod+Y", "Mod+Shift+Z"]],
+  ["delete", "删除选中节点（支持批量）", ["Delete", "Backspace"]],
+  ["cancel", "取消画布操作", ["Escape"]],
+  ["rename", "编辑节点 ID", ["F2"]],
+  ["preview", "开关选中节点预览", ["P"]],
+  ["disconnect", "断开选中节点连线", ["Mod+Shift+X"]],
+  ["layout", "自动布局", ["Shift+L"]],
+  ["fit", "适应全部节点", ["Home"]],
+  ["zoom-in", "放大画布", ["=", "Shift+="]],
+  ["zoom-out", "缩小画布", ["-"]],
+  ["zoom-reset", "画布缩放 100%", ["0"]],
+  ["stage", "切换顶点/片段", ["F6"]],
+].map(([name, title, defaults]) => ({
+  id: "studio.workflow-ui." + name,
+  title,
+  scope: "graph",
+  defaults,
+}));

@@ -1,0 +1,14 @@
+{
+  "name": "@workflow-plugin/project-files",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/tools-contract": "workspace:*"
+  }
+}

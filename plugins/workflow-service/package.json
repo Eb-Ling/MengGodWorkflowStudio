@@ -1,0 +1,15 @@
+{
+  "name": "@workflow-plugin/workflow-service",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/tools-contract": "workspace:*",
+    "@workflow/shader-ir": "workspace:*"
+  }
+}

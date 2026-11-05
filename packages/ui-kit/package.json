@@ -1,0 +1,16 @@
+{
+  "name": "@workflow/ui-kit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./surface": "./surface.ts",
+    "./registry": "./component-registry.ts"
+  },
+  "dependencies": {
+    "vue": "3.5.44",
+    "naive-ui": "2.45.3",
+    "@workflow/plugin-sdk": "workspace:*"
+  }
+}

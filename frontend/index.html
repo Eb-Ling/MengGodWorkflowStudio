@@ -1,41 +1,5 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Workflow Shader Editor · MVP</title>
-  <link rel="stylesheet" href="./theme.css" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand"><span class="brand-mark">◇</span> Workflow Shader <small>MVP</small></div>
-    <nav class="page-tabs"><a class="page-tab active" data-stage="fragment" href="./index.html?stage=fragment">片段工作流</a><a class="page-tab" data-stage="vertex" href="./index.html?stage=vertex">顶点工作流</a></nav>
-    <div class="toolbar"><button id="vertex-settings" hidden>几何设置</button><button id="workflow-manager" class="workflow-button">工作流</button><button id="import-workflow">导入工作流</button><button id="new-graph">重置流程</button><button id="add-demo">添加演示节点</button><button id="save-workflow">保存工作流</button><button id="export-runtime">导出运行文件</button><input id="workflow-file-input" type="file" accept=".json,.workflow.json,application/json" hidden></div>
-    <div class="connection-status"><i></i> <span id="workflow-name">未命名流程</span> · revision <span id="revision">0</span></div>
-  </header>
-  <main class="workspace">
-    <aside class="sidebar left-panel">
-      <h2>节点库</h2>
-      <input id="node-search" placeholder="搜索节点…" autocomplete="off" />
-      <div id="node-catalog" class="node-catalog"></div>
-      <section class="help"><h3>连接</h3><p>从输出端口拖到同类型输入端口。连到已有输入会自动替换旧连线。</p></section>
-    </aside>
-    <section id="canvas-shell" class="canvas-shell">
-      <div class="canvas-hint">拖入节点或点击“添加演示节点”开始</div>
-      <div id="graph-transform" class="graph-transform"><svg id="wire-layer" class="wire-layer" aria-hidden="true"></svg><div id="node-layer" class="node-layer"></div></div>
-      <div id="minimap" class="minimap"><span>GRAPH</span></div>
-    </section>
-    <aside class="sidebar inspector">
-      <h2>检查器</h2>
-      <div id="inspector-content" class="inspector-empty">选择一个节点以编辑它的属性。</div>
-      <section class="compile-card"><div class="compile-title"><span>导出状态</span><span class="pill invalid">不可导出</span></div><div id="compile-message">未连接片段输出：请将结果连接到“片段输出”的 color 输入端口。</div></section>
-    </aside>
-  </main>
-  <footer><span id="footer-message">就绪</span><span>Ctrl/Cmd+C/V/X · Ctrl/Cmd+Z/Y · Delete 删除节点 · 右键画布粘贴</span></footer>
-  <menu id="node-context-menu" class="context-menu" hidden><button data-action="copy">复制选中节点</button><button data-action="cut">剪切选中节点</button><button data-action="paste">粘贴</button><button data-action="toggle-preview">关闭预览</button><button data-action="disconnect">断开所有连线</button><button data-action="save-workflow-node">保存选中内容为工作流节点</button><button data-action="delete" class="danger">删除节点</button></menu>
-  <dialog id="workflow-dialog" class="workflow-dialog"><div class="workflow-manager-layout"><header><div><strong>工作流</strong><small>当前工作区与已保存流程</small></div><button id="close-workflow-dialog" class="dialog-close" aria-label="关闭">×</button></header><section class="workflow-create"><h3>新建工作流</h3><label>工作流名称<input id="workflow-title" value="Untitled Workflow"></label><label>导出 Java 类名<input id="plugin-class-name" value="GeneratedCombatLayerPlugin"></label><label>着色器目录<input id="shader-directory" value="data/shaders/generated"></label><label>混合方式<select id="blend-mode"><option value="alpha">普通透明</option><option value="additive">叠加发光</option></select></label><div class="resolution-fields"><label>预览画布宽度<input id="preview-canvas-width" type="number" min="64" max="4096" step="1" value="1024"></label><label>预览画布高度<input id="preview-canvas-height" type="number" min="64" max="4096" step="1" value="1024"></label></div><small class="type-hint">控制节点 GPU 预览的内部渲染分辨率；节点显示仍为标准正方形，并按比例留边。</small><div class="dialog-actions"><button id="create-workflow">新建并打开</button><button id="save-current-workflow">保存当前</button></div><details class="constructor-contract"><summary>Plugin 构造参数（随输入节点变化）</summary><pre id="constructor-contract"></pre></details><h3>页面桥接 / MCP</h3><label>桥接端口<input id="bridge-port" type="number" min="1" max="65535" value="4174"></label><div id="bridge-status" class="readonly">未检测</div><div class="dialog-actions"><button id="bridge-check">激活当前草稿</button><button id="bridge-self-test">运行 MCP 自检</button><button id="bridge-copy-prompt">显示 MCP 配置与接入提示</button></div><small class="type-hint">自检仅验证本机 EXE 可启动 stdio MCP 并返回工具列表；仍须在 Codex 新会话中确认出现 workflow_* 工具。</small></section><section class="workflow-list-section"><h3>已保存工作流</h3><div id="saved-workflows" class="saved-workflows"></div></section><section class="workflow-list-section"><h3>示例工作流</h3><div id="example-workflows" class="saved-workflows"></div></section></div></dialog>
-  <dialog id="import-dialog" class="workflow-dialog"><div class="workflow-manager-layout import-layout"><header><div><strong>导入工作流文件</strong><small>AI 生成 JSON 后在此导入，程序会先校验再打开。</small></div><button id="close-import-dialog" class="dialog-close" aria-label="关闭">×</button></header><section class="workflow-create"><h3>严格格式</h3><p class="readonly">文件必须包含 schemaVersion、project、graph。导入不会执行脚本，也不会覆盖已保存工作流。</p><pre class="import-format">{ "schemaVersion": 1, "project": {...}, "graph": {...} }</pre><div class="dialog-actions"><button id="choose-workflow-file" class="primary">选择 JSON 文件</button></div></section><section class="workflow-list-section"><h3>导入结果</h3><div id="import-status" class="readonly">尚未选择文件。</div></section></div></dialog>
-  <dialog id="workflow-node-save-dialog" class="workflow-node-save-dialog"><form method="dialog"><header><strong>保存工作流节点</strong><button value="cancel" class="dialog-close" aria-label="关闭">×</button></header><p id="workflow-node-save-summary" class="readonly"></p><label>节点名称<input id="workflow-node-save-title" maxlength="80" autocomplete="off"></label><div class="dialog-actions"><button value="cancel">取消</button><button id="confirm-workflow-node-save" value="default" class="primary">保存到节点库</button></div></form></dialog>
-  <script type="module" src="./app.js"></script>
-</body>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>MengGod Workflow Studio</title></head>
+<body><div id="app"></div><script type="module" src="./ui/main.ts"></script></body>
 </html>

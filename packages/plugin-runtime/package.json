@@ -1,0 +1,13 @@
+{
+  "name": "@workflow/plugin-runtime",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./context": "./context.mjs"
+  },
+  "dependencies": {
+    "@workflow/kernel": "workspace:*"
+  }
+}

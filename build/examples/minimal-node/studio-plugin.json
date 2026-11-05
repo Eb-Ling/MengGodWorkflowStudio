@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "example.minimal-node",
+  "name": "教学：最小节点",
+  "version": "1.0.0",
+  "apiVersion": "1.0.0",
+  "layer": 3,
+  "kind": "nodes",
+  "entry": "index.mjs",
+  "exportName": "plugin",
+  "requiredApis": { "workflow.nodes": "^1.0.0" },
+  "capabilities": ["nodes.register"]
+}

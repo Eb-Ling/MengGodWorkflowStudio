@@ -1,0 +1,15 @@
+{
+  "name": "@workflow-plugin/workflow-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/tools-contract": "workspace:*",
+    "vue": "^3.5.44"
+  }
+}

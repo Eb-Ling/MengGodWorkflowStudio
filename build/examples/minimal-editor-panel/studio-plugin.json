@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "example.minimal-editor-panel",
+  "name": "教学：编辑面板",
+  "version": "1.0.0",
+  "apiVersion": "1.0.0",
+  "layer": 3,
+  "kind": "extension",
+  "entry": "index.mjs",
+  "exportName": "plugin",
+  "requiredApis": {
+    "studio.extension-ui": "^1.0.0",
+    "workflow.editor": "^1.0.0"
+  },
+  "capabilities": ["extension.ui", "workflow.read", "workflow.write"]
+}

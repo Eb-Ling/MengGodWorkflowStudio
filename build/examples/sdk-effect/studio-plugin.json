@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "example.sdk-effect",
+  "name": "教学：双阶段特效扩展",
+  "version": "1.0.0",
+  "apiVersion": "1.0.0",
+  "layer": 3,
+  "kind": "extension",
+  "entry": "index.mjs",
+  "exportName": "plugin",
+  "requiredApis": {
+    "workflow.nodes": "^1.0.0",
+    "studio.extension-ui": "^1.0.0",
+    "workflow.editor": "^1.0.0"
+  },
+  "capabilities": [
+    "nodes.register",
+    "extension.ui",
+    "workflow.read",
+    "workflow.write"
+  ]
+}

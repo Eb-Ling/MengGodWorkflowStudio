@@ -1,0 +1,23 @@
+{
+  "name": "@workflow/tools-contract",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./types": "./types.ts",
+    "./regions": "./regions.mjs",
+    "./defaults": "./defaults.mjs",
+    "./ui-types": "./ui-types.ts",
+    "./interaction-types": "./interaction-types.ts",
+    "./preview-contract": "./preview-contract.mjs",
+    "./stages": "./stages.mjs",
+    "./parameters": "./parameters.mjs",
+    "./geometry": "./geometry.mjs",
+    "./graph-semantics": "./graph-semantics.mjs",
+    "./graph-data": "./graph-data.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*"
+  }
+}

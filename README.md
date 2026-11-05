@@ -1,183 +1,43 @@
 # MengGod Workflow Studio
 
-面向OpenGL shader 的可视化 GLSL 工作流编辑器。用户通过独立节点图构建片段着色器和顶点变形，导出后得到可直接迁移入 Mod 的 Java `CombatLayeredRenderingPlugin`、顶点着色器和片段着色器。
+在节点画布上制作 Starsector 战斗特效，边连线边看 GPU 预览，再把特效放进自己的 Mod。顶点工作流控制几何和位移，片段工作流控制颜色和透明度，两者使用相同的编辑操作。
 
-导出的 Java 代码使用 OpenGL 4.3 / GLSL 430、BoxUtil `ShaderProgram` 与 `BUtilGlobalData` UBO。几何使用 VAO/VBO，实例变换和自定义参数使用 SSBO；单实例和批量实例走同一条绘制路径。目标环境为 Starsector 0.98a、BoxUtil 1.6.3、Java 17。
+[下载 Windows x64 桌面版](https://github.com/Eb-Ling/MengGodWorkflowStudio/releases/latest/download/MengGod-Workflow-Studio-1.0.0-win-x64.zip) · [查看发行包与校验文件](https://github.com/Eb-Ling/MengGodWorkflowStudio/releases/latest)
 
-## 功能
+## 做出第一个特效
 
-- 方形节点画布、贝塞尔连线、框选、拖拽、右键操作、工作流保存与导入。
-- GLSL 数学、向量、纹理、噪声、SDF、布尔、If、For、变量与顶点变换节点。
-- 自定义 GLSL 节点支持 `in`、`out`、`inout` 参数。
-- 节点离屏 GPU 预览；时间节点可仅为预览动画。
-- 每个工作流可设置 `64-4096` 的预览画布宽高；GPU 预览按该分辨率渲染，并在方形节点内保持比例。
-- 纹理入口在预览中保持比例，运行时在 Java 构造器接收 `SpriteAPI`。
-- 导出前校验工作流端口、类型、分支边界、保留 uniform、Java 标识符和可映射的 public uniform 类型。
-- 顶点节点图：局部位置、UV、时间、参数、向量组合与拆分、算术、正弦和旋转；包含循环、端口类型和输出校验。
-- 输入节点可选择“整批共享／每个实例”，同一参数可用于顶点和片段阶段。
-- 顶点页支持多实例几何预览、选中实例参数覆盖、时间播放、图后局部变换和非矩形四边形。
-- 本地 MCP 桥接：Agent 可以读取和操作当前页面的未保存草稿。
+1. 解压桌面版，运行 `MengGod Workflow Studio.exe`。使用发行包无需安装 Node.js。
+2. 打开「工作流」，选择内置示例。切换「顶点工作流」和「片段工作流」，拖入节点，连接类型匹配的端口，再在检查器中调整参数。
+3. 右键节点预览可打开独立高清视框，默认长边 2048，最高 4096。画布支持缩放、框选、批量删除和撤销，快捷键可以在「插件 → 插件设置」中修改。
+4. 在几何设置选择实例数，决定哪些参数要留给调用方，按需要自定义节点与参数 ID。按 **Ctrl+S** 保存工作流。
+5. 点击「导出运行文件」。首次导出时先设置 Mod 中的公共依赖源码路径，例如 `data/method`，导出一次 `WorkflowRuntime.java`。每个特效只有 **一个 Java 文件、一个顶点着色器和一个片段着色器**。
 
-## 目录
+把 Java 编译进 Mod 实际加载的 JAR，将着色器放到导出标明的目录。使用 BoxUtil 并满足 OpenGL 4.3 的渲染要求。在已有战斗入口按生成的构造器传参，再调用 `engine.addLayeredRenderingPlugin(effect)` 登记一次。单个世界坐标用 `Vector2f`，批量用 `List<Vector2f>`。运行依赖设置可随时打开，修改路径后重新导出需要使用新包名的代码。
 
-```text
-frontend/          浏览器编辑器与 WebGL2 片段预览
-frontend/compiler/ 纯片段编译器、类型化顶点图
-frontend/export/   参数 ABI、Java/GLSL 生成与 ZIP
-frontend/runtime/  唯一 GPU 运行时源码（随导出打包）
-ai-gateway/        本地页面服务与 stdio MCP Server
-docs/              AI 工作流 JSON 格式
-src/workflowshader/ Java 图模型原型及共用新运行时的兼容适配器
-build/             导出回归测试
-```
+## 让 AI 使用 MCP
 
-## 启动
+1. 保持 Studio 打开，进入 **插件 → 插件设置 → MCP 工作流接入**。只查看内容选只读，需要改图、保存或导出时选可编辑。
+2. 点击 **复制配置说明给 AI**，粘贴到支持 MCP 的客户端，请它完成配置并连接。也可展开「手动配置」。同一用户配置目录会记住授权，正常重启和端口变化无需重新配置。
+3. 告诉 AI 工作流或草稿名称。例如：“先读取名为「冲击波」的已保存工作流，给我看一张长边 2048 的预览图，暂时不要修改。”
 
-普通用户不需要安装或启动 Node.js。
+AI 应先列出目标，按你指定的类型与 ID 选择，读取摘要后再操作，结束后重新读取核对。遇到重名先询问。读取当前草稿可以只读，从保存版本或恢复草稿载入编辑器需要可编辑权限。面板中可自检连接，也可随时撤销外部接入。
 
-1. 从 Releases 下载 Windows x64 ZIP。
-2. 将 ZIP 完整解压到任意普通文件夹，不要只把 EXE 单独取出。
-3. 双击 `MengGod Workflow Studio.exe`。
+## 安装与开发插件
 
-桌面应用会自动启动本地编辑器和页面桥接，并自动打开工作流界面。关闭应用后，随 EXE 启动的本地服务也会一同退出。
+从「插件 → 插件管理 → 添加本地插件」选择目录，审阅声明和权限后登记。没有声明时可以使用向导。若希望 AI 稍后登记，请选择「仅授权，稍后登记」。目录内容或权限改变后需重新审阅。教学插件可以按需启用。
 
-## 导出产物
+开发扩展可下载 [独立开发包](https://github.com/Eb-Ling/MengGodWorkflowStudio/releases/latest/download/workflow-plugin-devkit-1.0.0.zip)，从最小节点、面板或双阶段特效示例开始。普通特效制作者无需安装开发包。
 
-点击“导出运行文件”下载一个 ZIP，包含：
-
-- `src/data/scripts/YourPlugin.java`：效果类、类型化参数 setter。
-- `src/data/scripts/workflow/WorkflowBatch.java` 与 `WorkflowGlState.java`：共用运行时。
-- 所选 shader 目录中的 `YourPlugin.vert`、`YourPlugin.frag`。
-- `parameter-layout.json`：参数类型、作用域、16 字节槽位及 SSBO 绑定契约。
-- `USAGE.txt`：构造参数与实例调用说明。
-
-将 src/ 内容合并到 Mod 源码目录，data/ 内容合并到 Mod 根目录，再编译 Java。多个效果共用一份 workflow 运行时。1.3 起导出的 Plugin 构造函数接收完整参数配置，自动创建实例；不再使用 1.2 的默认实例构造接口或调用方手动初始化循环。几何来自工作流配置。
-
-在输入节点检查器中定义“参数 ID”、类型、作用域。参数 ID 同时显示在节点卡片上，生成 Java 字段、配置类构造参数及 setter 时保持原名；节点名称可写中文说明，内部连线 ID 和 GLSL uniform 名称独立保留。新输入节点获得独立参数 ID；旧图未设置 parameterId 时取 uniform 去掉 u_ 的名称。同一个 uniform 在两阶段的 ID、类型和作用域必须一致；不同 uniform 不能占用同一个参数 ID。
-
-- 每实例输入自动进入 InstanceParameters；每份配置包含 Transform 和该效果的全部每实例参数。
-- 共享输入与纹理自动进入 SharedParameters；没有共享输入时，构造接口自动省略这个类和参数。
-- 输入节点增删、改名、改类型或改作用域会同步改变配置类、构造签名、参数布局与使用说明。所有输入均必填；节点默认值只用于编辑器预览。
-- 工作流配置窗口中的“Plugin 构造参数”可查看当前完整签名。参数 ID 必须是非关键字的 Java 标识符；实例参数名 transform 为变换配置保留。
-
-内置“实例波动四边形”的入口只需：
-
-```java
-InstancedWave effect = new InstancedWave(
-    CombatEngineLayers.BELOW_SHIPS_LAYER,
-    new InstancedWave.InstanceParameters(
-        new InstancedWave.Transform(100f, 100f),
-        new Vector4f(1f, 0.3f, 0.1f, 1f), 20f),
-    new InstancedWave.InstanceParameters(
-        new InstancedWave.Transform(300f, 100f, 45f, 1f, 1f),
-        new Vector4f(0.2f, 0.8f, 1f, 1f), 45f)
-);
-engine.addLayeredRenderingPlugin(effect);
-```
-
-上面传了两份配置，因此创建两个实例；传 8 份或长度为 8 的数组，就创建 8 个，空数组创建空批次。实例创建、参数填写、GPU 资源初始化、绘制及清理由生成代码处理，不要求额外写战斗插件。坐标为世界坐标，角度为度。构造配置是快照；需要后续移动时调用 effect.instance(0).setPosition(x,y)，需要更新自定义参数时调用 effect.set_color(effect.instance(0),color)，结束整批调用 effect.markExpired()。
-
-位置、旋转、缩放只应用一次；片段所需实例参数由顶点读 SSBO 并通过 flat 接口传递，UV 正常插值。纹理、共享参数、混合方式和图层在一批内相同；透明效果保持实例插入顺序及批次登记顺序。更新 API 在战斗／渲染线程调用。UINT 在 Java 中使用 int 保存无符号 32 位位模式。
-
-## 顶点与片段共用工作流
-
-顶部两个阶段标签切换同一个编辑器，不重新加载页面。缩放、平移、Shift 框选、批量拖动、复制／剪切／粘贴、删除、撤销／重做、端口拖线、子图和自定义节点都走同一套逻辑；画布视图、选区和撤销栈按阶段分别保存，刷新页面后撤销栈重置。
-
-数学、向量、纹理、噪声、If／For、参数及自定义节点共用。顶点专用入口为“局部顶点坐标”，出口为“顶点输出”的 position / uv；片段出口为“片段输出”的 color。参数可直接在任一阶段声明，导出合并同名声明并校验类型和作用域，实例参数仍由顶点读取 SSBO，再按需传到片段阶段。
-
-“几何设置”保留四顶点、平移、缩放、旋转及多实例预览。顶点图与片段图共同驱动 WebGL2 几何预览；浏览器按实例提交参数，不代表游戏端 SSBO 性能。工作流配置、自定义节点、右键菜单和几何弹窗使用统一深色按钮主题，主操作与删除操作只用颜色区分。
-
-旧版顶点页面地址会转入共享编辑器；1.1 的 op / inputs 顶点图自动迁移，保存为与片段图一致的 nodes / links 格式。
-
-## 实际架构
+## 软件如何组织
 
 ```mermaid
-flowchart TD
-    Stage[阶段配置：输入与输出节点] --> Editor[同一工作流编辑器与 GraphStore]
-    Editor --> Canvas[共享缩放 / 框选 / 批量操作 / 连线 / 撤销]
-    Editor --> Draft[项目草稿：顶点图与片段图]
-    MCP[MCP 当前阶段命令] --> Editor
-    Draft --> Compiler[同一类型化图编译器]
-    Compiler --> VS[顶点下游：position 与 UV]
-    Compiler --> FS[片段下游：color]
-    Draft --> Contract[节点参数 ID / 必填配置类 / 构造接口]
-    Contract --> Export
-    Draft --> ABI[跨阶段参数校验与 std430 布局]
-    VS --> Export[Java / GLSL / ZIP 生成器]
-    FS --> Export
-    ABI --> Export
-    Compiler --> Preview[WebGL2 节点与实例几何预览]
-    Export --> Effect[生成效果类：材质与类型化参数 API]
-    Effect --> Batch[WorkflowBatch：实例集合与绘制]
-    Batch --> Buffers[VAO/VBO + 变换 SSBO + 参数 SSBO]
-    Batch --> Box[BoxUtil ShaderProgram / 视口 UBO]
-    Guard[WorkflowGlState：状态保存与恢复] --> Batch
-    Lifecycle[首次 render 初始化 / 幂等 cleanup] --> Batch
+flowchart TB
+  A["L3 · 用户入口<br/>编辑器界面、插件中心、MCP 设置、第三方扩展"]
+  B["L2 · 能力插件<br/>编辑、节点、编译、预览、导出与存储"]
+  C["L1 · 平台接入<br/>授权、隔离执行、文件及受限端口"]
+  D["L0 · 内核<br/>生命周期、API 权限、文档事务及贡献所有权"]
+  A --> B --> C --> D
 ```
 
-- GPU 资源只在有效渲染上下文创建。初始化失败、战斗结束及主动过期共用清理路径。
-- 变换数据遵守 BoxUtil `Fixed2DStruct` 的 32 字节布局，批次拥有独立 SSBO；不修改 BoxUtil 全局实例池。自定义参数每项占一个 16 字节槽，bool/int/uint 使用整数位模式。
-- 只有精确匹配标准四边形时借用 `ShaderCore` 共享 VAO；其他四顶点保留原形状并拥有独立 VAO/VBO。共享几何与视口 UBO 不由效果释放。
-- 数据变化时更新实例缓冲；静止批次复用已有数据。绘制后恢复 program、VAO、普通缓冲绑定、SSBO 索引范围、纹理单元、混合及深度状态。
-- 为支持任意顶点变形，目前关闭基于 CPU 半径的批次裁剪；未实现 GPU 粒子模拟、跨材质自动合批、任意网格或 WebGL2 SSBO 性能预览。
-- Java 图模型原型通过 `WorkflowShaderPlugin` 适配到同一运行时，不再依赖其他 Mod 的私有工具类。架构细节见 [架构说明](src/workflowshader/ARCHITECTURE.md)。
-
-## MCP
-
-桌面 EXE 会自动启动页面桥接，不需要手动运行 `server.mjs`，也不需要安装 Node.js。使用步骤：
-
-1. 启动 `MengGod Workflow Studio.exe` 并打开需要编辑的工作流。
-2. 打开“工作流”，点击“激活当前草稿”。
-3. 点击“运行 MCP 自检”，确认 EXE 能启动内置的 stdio MCP。
-4. 点击“显示 MCP 配置与接入提示”，将页面生成的当前 EXE 路径、MCP 脚本路径和实际桥接端口填写到 Codex、Claude Desktop 等客户端。
-5. 新建或重启 Agent 会话，确认工具列表中出现 `workflow_get_status`。
-
-配置由应用根据当前安装位置动态生成，形式如下：
-
-```json
-{
-  "mcpServers": {
-    "workflow-shader": {
-      "command": "<MengGod Workflow Studio.exe 的完整路径>",
-      "args": ["<应用目录>/resources/ai-gateway/mcp-server.mjs"],
-      "env": {
-        "ELECTRON_RUN_AS_NODE": "1",
-        "WORKFLOW_BRIDGE_URL": "http://127.0.0.1:4174"
-      }
-    }
-  }
-}
-```
-
-完整 JSON 工作流格式和 Agent 提示见 [docs/AI_WORKFLOW_FORMAT.md](docs/AI_WORKFLOW_FORMAT.md)。
-
-默认桥接地址为 `http://127.0.0.1:4174`；端口被占用时应用会自动选择空闲端口，因此应使用页面实际生成的配置，不要照抄示例端口。MCP 的 stdio 进程由 Codex、Claude Desktop 等客户端按需启动，不会作为 EXE 的常驻子进程。桥接只操作用户明确激活的编辑器页面未保存草稿：页面加载或后台同步不会激活；在目标页面点击画布或“激活当前草稿”即可激活，其他新开页面无法覆盖该草稿。
-
-在 EXE 内点击“工作流 → 运行 MCP 自检”可验证该 EXE 能启动 stdio MCP 并返回 `workflow_*` 工具列表。自检通过不等于 Codex 已加载配置：用户仍需在 Codex 新建会话，并确认能看到 `workflow_get_status`。正常 Agent 工作顺序为 `workflow_get_status`、`workflow_get_summary`、按需读取节点目录、携带 `expectedRevision` 写入、再次读取摘要验证。常规读取不会传输纹理预览 Base64 或生成源码。
-
-## 源码开发（可选）
-
-只有修改源码、使用浏览器调试或自行构建桌面应用时才需要 Node.js 18 或更新版本。源码版页面桥接可这样启动：
-
-```powershell
-Set-Location ai-gateway
-npm run start
-```
-
-然后打开 <http://127.0.0.1:4174/>。开发者构建桌面应用可运行根目录的 `构建桌面应用.bat`。
-
-## 验证
-
-先安装测试依赖：`npm install`。浏览器测试默认使用本机 Edge；也可设置 BROWSER_CHANNEL 为已安装的 Chromium 渠道。测试创建独立浏览器上下文和桥接端口，不修改用户草稿。
-
-```powershell
-npm test
-npm run test:browser
-& .\build\verify-native.ps1 -GameRoot E:\StarSector -JdkHome <JDK17目录>
-```
-
-第三步需要本机 OpenGL 4.3，使用 LWJGL Pbuffer 离屏上下文，编译全部生成 Java 与 Java 原型，链接 shader 并检查真实像素及 GL 状态。实际验证结果和游戏内验收步骤见 [验证记录](docs/VALIDATION.md)。
-
-## 状态
-
-1.3.0 根据输入节点生成完整构造参数类，Plugin 在构造时自动创建实例。1.2 的调用代码需要调整为新的配置对象接口；原工作流 JSON 可继续打开。浏览器编辑器为主实现；Java graph/compiler 为兼容原型。更新源码后需要重新构建桌面包，旧 Releases 不会自动更新。
+- [架构手册](docs/ARCHITECTURE_V1.md)：完整分层图，每个内置插件的文件、依赖、输出接口，以及扩展的注册路径。
+- [API 手册](docs/PLUGIN_API_V1.md)：从一个可登记的插件开始，查阅能力、参数、权限、MCP 工具和 Starsector 调用方式。

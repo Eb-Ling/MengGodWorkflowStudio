@@ -1,0 +1,14 @@
+{
+  "name": "@workflow-plugin/example-layout",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./manifest": "./manifest.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/example-layout-api": "workspace:*"
+  }
+}

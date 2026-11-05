@@ -1,0 +1,42 @@
+{
+  "name": "@workflow/plugin-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./plugin-activation": "./plugin-activation.mjs",
+    "./plugin-management": "./plugin-management.mjs",
+    "./workflow-edit": "./workflow-edit.mjs",
+    "./extension-platform": "./extension-platform.mjs",
+    "./extension-platform-types": "./extension-platform-types.ts",
+    "./drawing": "./drawing.mjs",
+    "./drawing-types": "./drawing-types.ts",
+    "./shortcuts": "./shortcuts.mjs",
+    "./shortcut-types": "./shortcut-types.ts",
+    ".": "./index.mjs",
+    "./types": "./types.ts",
+    "./pipeline-types": "./pipeline-types.ts",
+    "./contracts": "./contracts.mjs",
+    "./document": "./document.mjs",
+    "./ir": "./ir.mjs",
+    "./schema": "./schema.mjs",
+    "./commands": "./commands.mjs",
+    "./ports": "./ports.mjs",
+    "./plugin-manifest": "./plugin-manifest.mjs",
+    "./extension-protocol": "./extension-protocol.mjs",
+    "./extension-ui": "./extension-ui.mjs",
+    "./extension-types": "./extension-types.ts",
+    "./declarative": "./declarative.mjs",
+    "./declarative-types": "./declarative-types.ts",
+    "./project-files": "./project-files.mjs",
+    "./project-file-types": "./project-file-types.ts",
+    "./workspace-types": "./workspace-types.ts",
+    "./errors": "./errors.mjs",
+    "./registration": "./registration.mjs",
+    "./command-types": "./command-types.ts"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "vue": "3.5.44"
+  }
+}

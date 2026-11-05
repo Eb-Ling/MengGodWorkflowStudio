@@ -1,0 +1,17 @@
+{
+  "name": "@workflow/plugin-testkit",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./types": "./types.ts"
+  },
+  "dependencies": {
+    "@workflow/kernel": "workspace:*",
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/native-host": "workspace:*",
+    "@workflow/extension-host": "workspace:*",
+    "@workflow/plugin-runtime": "workspace:*"
+  }
+}

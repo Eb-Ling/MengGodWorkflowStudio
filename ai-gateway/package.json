@@ -4,6 +4,6 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "mcp": "node mcp-server.mjs"
+    "mcp": "node ../plugins/mcp/stdio.mjs"
   }
 }

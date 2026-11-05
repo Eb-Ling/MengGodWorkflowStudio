@@ -1,0 +1,19 @@
+{
+  "name": "@workflow/native-host",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./stdio-client": "./stdio-client.cjs",
+    "./plugin-repository": "./plugin-repository.mjs",
+    "./plugin-files": "./plugin-files.mjs",
+    "./extension-capabilities": "./extension-capabilities.mjs",
+    "./project-files": "./project-files.mjs",
+    "./local-connection": "./local-connection.mjs"
+  },
+  "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
+    "@workflow/plugin-runtime": "workspace:*"
+  }
+}
