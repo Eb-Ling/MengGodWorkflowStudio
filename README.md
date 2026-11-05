@@ -30,13 +30,29 @@ AI 应先列出目标，按你指定的类型与 ID 选择，读取摘要后再�
 
 ## 软件如何组织
 
+以制作特效为例，你在 L3 的工作流画布上连接节点，L2 的编译插件把节点图转成着色器，GPU 预览或游戏导出使用这份结果。图中每层只列代表模块，层与层之间的箭头表示允许的接入方向。
+
 ```mermaid
 flowchart TB
-  A["L3 · 用户入口<br/>编辑器界面、插件中心、MCP 设置、第三方扩展"]
-  B["L2 · 能力插件<br/>编辑、节点、编译、预览、导出与存储"]
-  C["L1 · 平台接入<br/>授权、隔离执行、文件及受限端口"]
-  D["L0 · 内核<br/>生命周期、API 权限、文档事务及贡献所有权"]
-  A --> B --> C --> D
+  subgraph L3["L3 · 使用入口"]
+    direction LR
+    Canvas["工作流画布<br/>workflow-ui"] ~~~ Manager["插件中心<br/>plugin-manager"] ~~~ Mcp["AI 接入<br/>mcp"]
+  end
+  subgraph L2["L2 · 公开能力插件"]
+    direction LR
+    Compile["节点图编译<br/>compiler"] ~~~ Preview["GPU 预览<br/>preview"] ~~~ Export["游戏特效导出<br/>starsector"]
+  end
+  subgraph L1["L1 · 内部适配与平台"]
+    direction LR
+    Ports["工作区状态端口<br/>workspace-ports.mjs"] ~~~ Host["原生文件授权<br/>native-host"] ~~~ Runtime["插件运行上下文<br/>plugin-runtime"]
+  end
+  subgraph L0["L0 · 唯一内核"]
+    direction LR
+    Lifecycle["插件生命周期<br/>plugin-lifecycle.mjs"] ~~~ Access["API 权限<br/>api-broker.mjs"] ~~~ Document["工作流文档状态<br/>document-store.mjs"]
+  end
+  L3 -->|已声明的公开 API| L2
+  L2 -->|获授权的内部端口| L1
+  L1 -->|受限访问| L0
 ```
 
 - [架构手册](docs/ARCHITECTURE_V1.md)：完整分层图，每个内置插件的文件、依赖、输出接口，以及扩展的注册路径。
