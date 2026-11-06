@@ -45,7 +45,7 @@ export async function auditExportContract(current, baseline) {
       new RegExp("public " + item.name + "\\(([^)]*)\\)"),
     )?.[1];
     assert.ok(
-      signature?.startsWith("CombatEngineLayers layer, List<Vector2f> positions"),
+      signature?.replace(/\s+/g, " ").trim().startsWith("CombatEngineLayers layer, List<Vector2f> positions"),
     );
     assert.match(
       java,

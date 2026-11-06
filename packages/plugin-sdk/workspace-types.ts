@@ -1,8 +1,12 @@
-import type { WorkflowApi, JsonValue } from "./types";
+import type { WorkflowApi, JsonValue, NodeDefinition } from "./types";
 /** 完整工作区入口：编辑、保存、模板和导出共用守卫，具体业务由所属能力负责。 */
 export interface WorkspaceApi extends WorkflowApi {
   /** 状态是数据投影，工作区不访问 DOM，也不承担界面控件生命周期。 */
   snapshot(): ReturnType<WorkflowApi["snapshot"]> & {
+    /** 是否存在组件创建与删除操作，停用组件插件不会停用工作区。 */
+    customNodeEditing: boolean;
+    /** 当前阶段由界面管理的 GLSL 插件组件。 */
+    customNodes: NodeDefinition[];
     exportReadiness: { ready: boolean; pending?: boolean; message: string };
   };
   /** 仅保存当前消费插件的视图偏好，不修改工作流文档。 */

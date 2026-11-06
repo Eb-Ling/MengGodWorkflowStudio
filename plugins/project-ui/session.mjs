@@ -1,4 +1,19 @@
 import { reactive, shallowRef } from "vue";
+
+/** 表单文本在提交前统一转成数值，新建、保存与另存共用同一校验。 */
+export function readProjectForm(form) {
+  const config = { ...form };
+  for (const [key, label] of [["previewWidth", "预览画布宽度"], ["previewHeight", "预览画布高度"]]) {
+    const text = String(form[key] ?? "").trim();
+    const value = Number(text);
+    if (!text || !Number.isInteger(value) || value < 64 || value > 4096) {
+      throw Error(label + "请输入 64 到 4096 之间的整数");
+    }
+    config[key] = value;
+  }
+  return config;
+}
+
 /** 当前插件的局部表单/对话框会话，写入只经过公开修订守卫。 */
 export function createProjectSession({
   workflow,

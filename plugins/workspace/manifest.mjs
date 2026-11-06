@@ -13,6 +13,7 @@ export const workspaceManifest = {
   version: "1.0.0",
   apiVersion: "1.0.0",
   requiredApis: {
+    "workflow.operations": "^1.0.0",
     "workflow.editor": "^1.0.0",
     "platform.workspace-execution": "^1.0.0",
     "platform.browser": "^1.0.0",
@@ -31,11 +32,14 @@ export const workspaceManifest = {
     "export.read",
     "export.write",
     "templates.use",
+    "operations.read",
+    "operations.execute",
     "layout.use",
     "ui.status",
   ],
   providesApis: {
     "workflow.workspace": local({
+      revision: "workflow.read",
       snapshot: "workflow.read",
       execute: "workflow.write",
       subscribe: "workflow.read",

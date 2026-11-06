@@ -48,6 +48,10 @@ flowchart TB
 ```mermaid
 flowchart LR
   Algorithms["算法插件<br/>math / noise / sdf"] -->|workflow.nodes 注册| Nodes["节点能力<br/>node-model/index.mjs<br/>service.mjs"]
+  Workspace -->|执行创建、修改、删除| Ops["workflow.operations<br/>operation-registry.mjs"]
+  Custom["UI 管理的节点插件<br/>custom-nodes/library.mjs"] -->|登记组件操作| Ops
+  Custom -->|workflow.nodes 注册| Nodes
+  Folder["用户目录节点插件<br/>index.mjs"] -->|workflow.nodes 注册| Nodes
   Editor["编辑会话<br/>workflow-service/application.mjs"] -->|只读目录与变更通知| Nodes
   Compiler["通用编译<br/>compiler/index.mjs"] -->|传入文档副本<br/>workflow.graph-snapshot| Nodes
   Compiler -->|ShaderModule JSON| GLSL["GLSL 后端<br/>glsl-backend/emitter.mjs"]
@@ -146,6 +150,23 @@ flowchart LR
   R["shader.backend.glsl · studio.glsl<br/>workflow.graph-snapshot · studio.node-model<br/>workflow.operations · L1 平台"]
   P -->|必需| R
   P -->|提供| A["workflow.compilation"]
+```
+
+### 自定义 GLSL 节点 · custom.glsl
+
+目录：[custom-nodes/manifest.mjs](../plugins/custom-nodes/manifest.mjs)。实现：[index.mjs](../plugins/custom-nodes/index.mjs)、[library.mjs](../plugins/custom-nodes/library.mjs)、[seeds.mjs](../plugins/custom-nodes/seeds.mjs)。
+
+```mermaid
+flowchart LR
+  subgraph P["自定义 GLSL 节点 · L2"]
+    F0["index.mjs"]
+    F1["library.mjs"]
+    F2["seeds.mjs"]
+    F0 --> F1
+    F1 --> F2
+  end
+  R["platform.browser · L1 平台<br/>workflow.nodes · studio.node-model<br/>workflow.operations · L1 平台"]
+  P -->|必需| R
 ```
 
 ### 无脚本声明式插件 · studio.declarations
@@ -428,7 +449,7 @@ flowchart LR
 
 ### GPU 预览与高清视框 · studio.preview
 
-目录：[preview/manifest.mjs](../plugins/preview/manifest.mjs)。实现：[PreviewViewer.vue](../plugins/preview/PreviewViewer.vue)、[controller.mjs](../plugins/preview/controller.mjs)、[index.ts](../plugins/preview/index.ts)、[parameters.mjs](../plugins/preview/parameters.mjs)、[renderer.mjs](../plugins/preview/renderer.mjs)、[service.mjs](../plugins/preview/service.mjs)、[view-transform.mjs](../plugins/preview/view-transform.mjs)。
+目录：[preview/manifest.mjs](../plugins/preview/manifest.mjs)。实现：[PreviewViewer.vue](../plugins/preview/PreviewViewer.vue)、[controller.mjs](../plugins/preview/controller.mjs)、[index.ts](../plugins/preview/index.ts)、[parameters.mjs](../plugins/preview/parameters.mjs)、[playback.mjs](../plugins/preview/playback.mjs)、[renderer.mjs](../plugins/preview/renderer.mjs)、[service.mjs](../plugins/preview/service.mjs)、[view-transform.mjs](../plugins/preview/view-transform.mjs)。
 
 ```mermaid
 flowchart LR
@@ -437,15 +458,17 @@ flowchart LR
     F1["controller.mjs"]
     F2["index.ts"]
     F3["parameters.mjs"]
-    F4["renderer.mjs"]
-    F5["service.mjs"]
-    F6["view-transform.mjs"]
-    F0 --> F6
+    F4["playback.mjs"]
+    F5["renderer.mjs"]
+    F6["service.mjs"]
+    F7["view-transform.mjs"]
+    F0 --> F7
+    F1 --> F4
+    F2 --> F6
     F2 --> F5
-    F2 --> F4
     F2 --> F1
     F2 --> F0
-    F4 --> F3
+    F5 --> F3
   end
   R["studio.shortcuts · studio.shortcuts<br/>studio.ui · studio.ui<br/>workflow.compilation · studio.compiler<br/>workflow.editor · studio.workflow-service"]
   P -->|必需| R
@@ -483,6 +506,7 @@ flowchart LR
     F5["index.ts"]
     F6["session.mjs"]
     F3 --> F4
+    F3 --> F6
     F5 --> F6
     F5 --> F3
     F5 --> F2
@@ -629,7 +653,7 @@ flowchart LR
 
 ### 工作流视图与检查器 · studio.workflow-ui
 
-目录：[workflow-ui/manifest.mjs](../plugins/workflow-ui/manifest.mjs)。实现：[CanvasTools.vue](../plugins/workflow-ui/CanvasTools.vue)、[CustomNodeEditor.vue](../plugins/workflow-ui/CustomNodeEditor.vue)、[GraphEditor.vue](../plugins/workflow-ui/GraphEditor.vue)、[Inspector.vue](../plugins/workflow-ui/Inspector.vue)、[InspectorField.vue](../plugins/workflow-ui/InspectorField.vue)、[NodeCard.vue](../plugins/workflow-ui/NodeCard.vue)、[NodeCatalog.vue](../plugins/workflow-ui/NodeCatalog.vue)、[NodeIdentity.vue](../plugins/workflow-ui/NodeIdentity.vue)、[PortView.vue](../plugins/workflow-ui/PortView.vue)、[PreviewControls.vue](../plugins/workflow-ui/PreviewControls.vue)、[PreviewSurface.vue](../plugins/workflow-ui/PreviewSurface.vue)、[WorkspaceControls.vue](../plugins/workflow-ui/WorkspaceControls.vue)、[gestures.ts](../plugins/workflow-ui/gestures.ts)、[index.ts](../plugins/workflow-ui/index.ts)、[keyboard.ts](../plugins/workflow-ui/keyboard.ts)、[session.mjs](../plugins/workflow-ui/session.mjs)、[shortcuts.mjs](../plugins/workflow-ui/shortcuts.mjs)。
+目录：[workflow-ui/manifest.mjs](../plugins/workflow-ui/manifest.mjs)。实现：[CanvasTools.vue](../plugins/workflow-ui/CanvasTools.vue)、[CustomNodeEditor.vue](../plugins/workflow-ui/CustomNodeEditor.vue)、[GraphEditor.vue](../plugins/workflow-ui/GraphEditor.vue)、[Inspector.vue](../plugins/workflow-ui/Inspector.vue)、[InspectorField.vue](../plugins/workflow-ui/InspectorField.vue)、[NodeCard.vue](../plugins/workflow-ui/NodeCard.vue)、[NodeCatalog.vue](../plugins/workflow-ui/NodeCatalog.vue)、[NodeIdentity.vue](../plugins/workflow-ui/NodeIdentity.vue)、[PortView.vue](../plugins/workflow-ui/PortView.vue)、[PreviewControls.vue](../plugins/workflow-ui/PreviewControls.vue)、[PreviewSurface.vue](../plugins/workflow-ui/PreviewSurface.vue)、[TimeValue.vue](../plugins/workflow-ui/TimeValue.vue)、[WorkspaceControls.vue](../plugins/workflow-ui/WorkspaceControls.vue)、[gestures.ts](../plugins/workflow-ui/gestures.ts)、[index.ts](../plugins/workflow-ui/index.ts)、[keyboard.ts](../plugins/workflow-ui/keyboard.ts)、[session.mjs](../plugins/workflow-ui/session.mjs)、[shortcuts.mjs](../plugins/workflow-ui/shortcuts.mjs)。
 
 ```mermaid
 flowchart LR
@@ -645,28 +669,31 @@ flowchart LR
     F8["PortView.vue"]
     F9["PreviewControls.vue"]
     F10["PreviewSurface.vue"]
-    F11["WorkspaceControls.vue"]
-    F12["gestures.ts"]
-    F13["index.ts"]
-    F14["keyboard.ts"]
-    F15["session.mjs"]
-    F16["shortcuts.mjs"]
-    F2 --> F12
-    F2 --> F14
+    F11["TimeValue.vue"]
+    F12["WorkspaceControls.vue"]
+    F13["gestures.ts"]
+    F14["index.ts"]
+    F15["keyboard.ts"]
+    F16["session.mjs"]
+    F17["shortcuts.mjs"]
+    F2 --> F13
+    F2 --> F15
+    F2 --> F11
     F2 --> F10
     F3 --> F1
     F3 --> F7
-    F13 --> F0
-    F13 --> F16
-    F13 --> F15
-    F13 --> F5
-    F13 --> F8
-    F13 --> F4
-    F13 --> F2
-    F13 --> F3
-    F13 --> F6
-    F13 --> F9
-    F13 --> F11
+    F14 --> F0
+    F14 --> F17
+    F14 --> F16
+    F14 --> F5
+    F14 --> F8
+    F14 --> F4
+    F14 --> F11
+    F14 --> F2
+    F14 --> F3
+    F14 --> F6
+    F14 --> F9
+    F14 --> F12
   end
   R["studio.shortcuts · studio.shortcuts<br/>studio.ui · studio.ui<br/>workflow.interaction · studio.interaction<br/>workflow.preview · studio.preview<br/>workflow.workspace · studio.workspace"]
   P -->|必需| R
@@ -683,7 +710,7 @@ flowchart LR
     F1["service.mjs"]
     F0 --> F1
   end
-  R["platform.browser · L1 平台<br/>platform.workspace-execution · L1 平台<br/>workflow.editor · studio.workflow-service"]
+  R["platform.browser · L1 平台<br/>platform.workspace-execution · L1 平台<br/>workflow.editor · studio.workflow-service<br/>workflow.operations · L1 平台"]
   P -->|必需| R
   O["workflow.export · studio.starsector<br/>workflow.layout · studio.layout<br/>workflow.project-files · studio.project-files<br/>workflow.templates · studio.templates"]
   P -.->|可选| O

@@ -46,10 +46,10 @@ try{
   await page.getByRole('button',{name:'保存节点定义',exact:true}).click();
   assert.match(await page.locator('#footer-message').textContent(),/已保存自定义节点/);
   await page.fill('#node-search','Current GLSL');
-  const custom=page.locator('.catalog-node[data-type="custom.current.glsl"]');await custom.waitFor();
+  const custom=page.locator('.catalog-node[data-type="custom.glsl.current_glsl"]');await custom.waitFor();
   const source=await custom.boundingBox(),canvas=await page.locator('#canvas-shell').boundingBox();
   await page.mouse.move(source.x+source.width/2,source.y+source.height/2);await page.mouse.down();await page.mouse.move(canvas.x+250,canvas.y+300,{steps:12});await page.mouse.up();
-  await page.locator('.workflow-node[data-type="custom.current.glsl"]').waitFor();
+  await page.locator('.workflow-node[data-type="custom.glsl.current_glsl"]').waitFor();
   await page.screenshot({path:path.join(out,'custom-node-current.png')});
   assert.deepEqual(errors,[]);await fs.writeFile(path.join(out,'report.json'),JSON.stringify({sizes:[980,1280,1600],menu:true,dialogForm:true,currentCustomNode:true,errors},null,2));
   console.log('PASS: responsive workbench, workflow modal, context-menu actions and native dialog form behavior\n'+out);

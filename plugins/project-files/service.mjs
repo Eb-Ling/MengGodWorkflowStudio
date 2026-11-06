@@ -1,4 +1,4 @@
-import { readDocument } from "../../packages/plugin-sdk/document.mjs";
+import { readWorkflowDocument as readDocument } from "../../packages/workflow-tools/custom-component-import.mjs";
 import { projectContent } from "../../packages/plugin-sdk/project-files.mjs";
 
 const guard = (s) => ({
@@ -76,6 +76,8 @@ export function createProjectFileService({
   }
   const off = workflow.subscribe(() => {
     if (restoring) return;
+    const revision = workflow.revision?.();
+    if (revision && revision.documentToken === last.documentToken && revision.documentRevision === last.documentRevision) return;
     const next = workflow.snapshot();
     if (next.documentToken !== last.documentToken) {
       error = "";

@@ -4,8 +4,8 @@ import {
   reactive,
   watch,
   nextTick,
-  onMounted,
   onBeforeUnmount,
+  onMounted,
 } from "vue";
 import type { Component } from "vue";
 import { fitView, zoomView } from "./view-transform.mjs";
@@ -16,23 +16,27 @@ const props = defineProps<{
     visible: boolean;
     busy: boolean;
     error: string;
-    dataUrl: string;
     width: number;
     height: number;
     longEdge: number;
     time: number;
+    playing: boolean;
     title: string;
     outputs: { name: string; type: string }[];
     socket: string;
   };
   actions: {
+    attachCanvas(target: HTMLCanvasElement | null): void;
+    setPlayback(input: { playing?: boolean; time?: number }): void;
+    setPageVisible(visible: boolean): void;
+    setViewport(region: {left:number;top:number;right:number;bottom:number} | null | undefined): void;
     refresh(): void;
     close(): void;
     selectSocket(socket: string): void;
   };
 }>();
-const { UiDialog, UiButton, UiInput } = props.controls;
-const viewport = ref<HTMLElement>(),
+const { UiDialog, UiButton, UiInput, UiToggle } = props.controls;
+const viewport = ref<HTMLElement>(), canvas = ref<HTMLCanvasElement>(),
   view = reactive({ scale: 1, x: 0, y: 0 });
 let observer: ResizeObserver | undefined,
   drag: { x: number; y: number; left: number; top: number; id: number } | null =
@@ -97,18 +101,67 @@ function keyboard(event: KeyboardEvent) {
     actions[id]();
   }
 }
+let visibilityFrame = 0;
+let onScreen: IntersectionObserver | undefined;
+function updateRegion() {
+  visibilityFrame = 0;
+  if (!props.model.visible || !canvas.value || !viewport.value || !props.model.width) return;
+  const image = canvas.value.getBoundingClientRect(), box = viewport.value.getBoundingClientRect();
+  const left = Math.max(0, box.left, image.left), top = Math.max(0, box.top, image.top);
+  const right = Math.min(window.innerWidth, box.right, image.right), bottom = Math.min(window.innerHeight, box.bottom, image.bottom);
+  if (right <= left || bottom <= top) props.actions.setViewport(null);
+  else if (left === image.left && right === image.right && top === image.top && bottom === image.bottom)
+    props.actions.setViewport(undefined);
+  else props.actions.setViewport({ left: (left - image.left) / image.width, top: (top - image.top) / image.height,
+    right: (right - image.left) / image.width, bottom: (bottom - image.top) / image.height });
+}
+function scheduleRegion() {
+  if (!visibilityFrame) visibilityFrame = requestAnimationFrame(updateRegion);
+}
+watch([() => view.x, () => view.y, () => view.scale, () => props.model.width, () => props.model.height], scheduleRegion, { flush: "post" });
+watch(canvas, (element) => {
+  onScreen?.disconnect();
+  props.actions.attachCanvas(element ?? null);
+  if (element) {
+    onScreen = new IntersectionObserver(scheduleRegion);
+    onScreen.observe(element);
+    scheduleRegion();
+  }
+}, { flush: "post" });
+function pageVisibility() {
+  props.actions.setPageVisible(!document.hidden);
+  if (!document.hidden) scheduleRegion();
+}
+onMounted(() => {
+  pageVisibility();
+  document.addEventListener("visibilitychange", pageVisibility);
+});
+function seek(event: Event) {
+  const input = event.target as HTMLInputElement;
+  if (Number.isFinite(input.valueAsNumber)) props.actions.setPlayback({ time: input.valueAsNumber, playing: false });
+  else input.value = String(props.model.time);
+}
 watch(
-  () => [props.model.dataUrl, props.model.visible],
+  () => [props.model.width, props.model.height, props.model.visible],
   async () => {
     await nextTick();
     fit();
   },
 );
-onMounted(() => {
-  observer = new ResizeObserver(fit);
-  if (viewport.value) observer.observe(viewport.value);
+watch(viewport, (element) => {
+  observer?.disconnect();
+  if (element) {
+    observer = new ResizeObserver(() => { fit(); scheduleRegion(); });
+    observer.observe(element);
+  }
+}, { flush: "post" });
+onBeforeUnmount(() => {
+  document.removeEventListener("visibilitychange", pageVisibility);
+  cancelAnimationFrame(visibilityFrame);
+  onScreen?.disconnect();
+  observer?.disconnect();
+  props.actions.attachCanvas(null);
 });
-onBeforeUnmount(() => observer?.disconnect());
 </script>
 <template>
   <UiDialog
@@ -126,7 +179,7 @@ onBeforeUnmount(() => observer?.disconnect());
         :key="edge"
         :data-resolution="edge"
         :aria-pressed="model.longEdge === edge"
-        :disabled="model.busy"
+        :disabled="model.busy && !model.width"
         @click="resolution(edge)"
         >{{ edge }}</UiButton
       >
@@ -143,11 +196,16 @@ onBeforeUnmount(() => observer?.disconnect());
           data-preview-time
           type="number"
           step="0.1"
-          :model-value="String(model.time)"
-          @update:model-value="model.time = Number($event)" /></label
+          :model-value="String(Number(model.time.toFixed(2)))"
+          :readonly="model.playing"
+          @change="seek" /></label
+      ><UiToggle
+        :model-value="model.playing"
+        @update:model-value="actions.setPlayback({ playing: $event })"
+        >{{ model.playing ? "暂停" : "播放" }}</UiToggle
       ><UiButton
         data-preview-action="refresh"
-        :disabled="model.busy"
+        :disabled="model.busy && !model.width"
         @click="actions.refresh"
         >重新渲染</UiButton
       >
@@ -159,12 +217,13 @@ onBeforeUnmount(() => observer?.disconnect());
         :key="port.name"
         :data-preview-socket="port.name"
         :aria-pressed="model.socket === port.name"
-        :disabled="model.busy"
+          :disabled="model.busy && !model.width"
         @click="actions.selectSocket(port.name)"
         >{{ port.name }} · {{ port.type }}</UiButton
       >
     </div>
     <div
+      v-if="model.visible"
       ref="viewport"
       class="preview-viewport"
       tabindex="0"
@@ -177,19 +236,15 @@ onBeforeUnmount(() => observer?.disconnect());
       @lostpointercapture="up"
       @keydown="keyboard"
     >
-      <img
-        v-if="model.dataUrl"
-        :src="model.dataUrl"
-        :width="model.width"
-        :height="model.height"
-        draggable="false"
-        alt="GPU 高清预览渲染结果"
+      <canvas
+        ref="canvas"
+        aria-label="GPU 高清预览渲染结果"
         :style="{
           transform: `translate(${view.x}px,${view.y}px) scale(${view.scale})`,
         }"
       />
       <div
-        v-if="model.busy || model.error"
+        v-if="(model.busy && !model.width) || model.error"
         class="preview-notice"
         role="status"
       >
@@ -251,7 +306,7 @@ onBeforeUnmount(() => observer?.disconnect());
 .preview-viewport:active {
   cursor: grabbing;
 }
-.preview-viewport img {
+.preview-viewport canvas {
   position: absolute;
   left: 0;
   top: 0;

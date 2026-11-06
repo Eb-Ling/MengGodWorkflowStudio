@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1, "id": "example.glsl-node", "name": "教学：GLSL 节点组件",
+  "version": "1.0.0", "apiVersion": "1.0.0", "layer": 3, "kind": "nodes",
+  "entry": "index.mjs", "exportName": "plugin",
+  "requiredApis": { "workflow.nodes": "^1.0.0" }, "capabilities": ["nodes.register"]
+}

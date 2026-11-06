@@ -32,6 +32,7 @@ export function createWorkflowService(port, presentation) {
     return result;
   }
   const api = {
+    revision: () => port.revision(),
     snapshot: () => port.snapshot(),
     execute: (request) => port.execute(request),
     subscribe: (listener) => port.subscribe(listener),

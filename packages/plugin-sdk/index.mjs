@@ -17,5 +17,5 @@ export { copyJson, validateValue } from "./schema.mjs";
 export { ACTION_SCHEMAS, validateAction } from "./commands.mjs";
 
 export { ContractError, CONTRACT_ERROR_CODES, errorDetails } from "./errors.mjs";
-export { registration, ownRegistration } from "./registration.mjs";
+export { registration, ownRegistration, ownCleanup } from "./registration.mjs";
 export { validateSchema } from "./schema-definition.mjs";

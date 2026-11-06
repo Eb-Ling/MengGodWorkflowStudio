@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { PluginRuntime } from "../packages/plugin-runtime/index.mjs";
 import { createPreviewService } from "../plugins/preview/service.mjs";
 import { createPreviewController } from "../plugins/preview/controller.mjs";
+import { createPreviewPlayback } from "../plugins/preview/playback.mjs";
 import { previewManifest } from "../plugins/preview/manifest.mjs";
 import { readPreviewCall } from "../packages/workflow-tools/preview-contract.mjs";
 import { createBridgeService } from "../plugins/mcp/bridge-service.mjs";
@@ -58,6 +59,7 @@ function fixture() {
   };
   const controller = createPreviewController({ workflow, renderer, model });
   return {
+    controller,
     service: createPreviewService(controller),
     jobs,
     model,
@@ -84,6 +86,63 @@ function canvas() {
   };
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("双阶段使用同一个预览时钟，暂停、续播、换草稿和节点初值均生效", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  const clock = createPreviewPlayback();
+  const node = { id: "time", typeId: "input.time", properties: { defaultValue: "0.25", autoAdvance: true } };
+  const doc = { documentToken: "a", stage: "fragment", fragmentGraph: {nodes: []}, vertexTransform: {graph: {nodes: [node]}} };
+  try {
+    clock.sync(doc);
+    assert.deepEqual(clock.snapshot(), { time: 0.25, playing: true, available: true });
+    now += 500;
+    t.mock.timers.tick(83);
+    assert.equal(clock.snapshot().time, 0.75);
+    clock.set({ playing: false });
+    doc.stage = "vertex";
+    clock.sync(doc);
+    now += 8000;
+    t.mock.timers.tick(83);
+    assert.equal(clock.snapshot().time, 0.75);
+    clock.set({ playing: true });
+    now += 250;
+    t.mock.timers.tick(83);
+    assert.equal(clock.snapshot().time, 1);
+    node.properties.autoAdvance = "false";
+    node.properties.defaultValue = "0.4";
+    clock.sync(doc);
+    assert.deepEqual(clock.snapshot(), { time: 0.4, playing: false, available: true });
+    clock.sync({...doc, documentToken:"b", vertexTransform:{graph:{nodes:[]}}});
+    assert.deepEqual(clock.snapshot(), { time: 0, playing: false, available: false });
+  } finally { clock.dispose(); }
+});
+
+test("挂载画布和已打开的高清图同步定位，显式采样保持固定秒数", async () => {
+  const f = fixture(), api = f.service.createApi("test", () => {}), c = canvas(), view = api.mount(c);
+  try {
+    const initial = view.render();
+    f.jobs[0].finish(); await initial;
+    const opened = view.open();
+    f.jobs[1].finish(); await opened;
+    api.setPlayback({time:0.75, playing:false});
+    assert.deepEqual(f.jobs.slice(2).map(j => j.request.time), [0.75, 0.75]);
+    f.jobs[2].finish(); f.jobs[3].finish(); await tick();
+    assert.equal(api.status().viewerTime, 0.75);
+    const pinned = api.open({time:0});
+    f.jobs[4].finish(); await pinned;
+    api.setPlayback({time:2});
+    assert.equal(f.jobs.length, 6);
+    f.jobs[5].finish(); await tick();
+    assert.equal(api.status().viewerTime, 0);
+    const frame = api.frame();
+    f.jobs[6].finish(); assert.equal((await frame).time, 2);
+    api.close(); view.dispose();
+    api.setPlayback({time:4});
+    assert.equal(f.jobs.length, 7);
+  } finally { f.service.dispose(); }
+});
 
 test("预览能力合并快速重绘，仅最新帧显示，画布比例与高清参数统一处理", async () => {
   const f = fixture(),
@@ -163,6 +222,7 @@ test("画布重复挂载、内部编号、非法尺寸与非白名单远程方�
   await assert.rejects(api.frame({ time: NaN }));
   for (const method of ["mount", "draw", "constructor"])
     assert.throws(() => readPreviewCall({ method, input: {} }));
+  assert.equal(readPreviewCall({method:"setPlayback",input:{time:0.25,playing:false}}).input.time, 0.25);
   assert.throws(() =>
     readPreviewCall({ method: "frame", input: { document: {} } }),
   );
@@ -259,4 +319,132 @@ test("MCP 预览封包绑定草稿修订且不能夹带编辑事务或任意方�
   });
   assert.equal((await pending).result.mountedViews, 0);
   bridge.dispose();
+});
+
+test("修改任一阶段的时间节点可以定位同一个时钟，视口或另一节点的初值不会将其拨回", () => {
+  const clock = createPreviewPlayback();
+  const n = (id, value) => ({ id, typeId: "input.time", properties: { defaultValue: value, autoAdvance: false } });
+  const a = n("a","1"), b = n("b","3");
+  const state = {documentToken:"test", fragmentGraph:{nodes:[a]},vertexTransform:{graph:{nodes:[b]}}};
+  try {
+    clock.sync(state);
+    assert.equal(clock.snapshot().time,1);
+    clock.set({playing:true});
+    b.properties.defaultValue = "8";
+    clock.sync(state);
+    assert.deepEqual(clock.snapshot(),{time:8,playing:true,available:true});
+    clock.set({time:0,playing:false});
+    clock.sync(state);
+    assert.deepEqual(clock.snapshot(),{time:0,playing:false,available:true});
+    state.fragmentGraph.nodes = [];
+    clock.sync(state);
+    assert.equal(clock.snapshot().time,0);
+  } finally { clock.dispose(); }
+});
+
+test("可见画布连续播放，高清视框优先，隐藏或切换阶段后停止旧视图", async (t) => {
+  t.mock.timers.enable({apis:["setInterval"]});
+  let now = 1000;
+  t.mock.method(performance,"now",()=>now);
+  const f=fixture(), api=f.service.createApi("viewer",()=>{}), view=api.mount(canvas());
+  try {
+    const paint=view.render(); f.jobs.at(-1).finish(); await paint;
+    api.setPlayback({playing:true});
+    now+=250; t.mock.timers.tick(249);
+    assert.equal(f.jobs.length,2);
+    f.jobs.at(-1).finish(); await tick();
+    assert.equal(api.status().mountedFrames,2);
+    const opened=api.open(); f.jobs.at(-1).finish(); await opened;
+    now+=83; t.mock.timers.tick(83);
+    assert.equal(f.jobs.length,4);
+    f.jobs.at(-1).finish(); await tick();
+    f.controller.setViewport(null);
+    now+=250; t.mock.timers.tick(249);
+    assert.equal(f.jobs.length,4);
+    f.controller.setViewport({left:0,top:0,right:0.5,bottom:0.5});
+    f.jobs.at(-1).finish(); await tick();
+    assert.equal(f.jobs.length,5);
+    f.controller.setPageVisible(false);
+    const paused=api.status().playback.time;
+    now+=1000; t.mock.timers.tick(996);
+    assert.equal(f.jobs.length,5);
+    assert.equal(api.status().clockTimer,false);
+    assert.equal(api.status().playback.time,paused);
+    f.controller.setPageVisible(true); f.jobs.at(-1).finish(); await tick();
+    f.state.stage="vertex";
+    for (const fn of f.listeners) fn();
+    const count=f.jobs.length;
+    now+=166; t.mock.timers.tick(166);
+    assert.equal(f.jobs.length,count);
+    assert.equal(api.status().viewerOpen,false);
+    view.dispose();
+    assert.equal(api.status().changeSubscribers,0);
+    assert.equal(api.status().clockSubscribers,1);
+  } finally { f.service.dispose(); }
+});
+
+test("动画慢帧仍能完成呈现，关闭高清图后普通预览恢复播放", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  const f = fixture(), api = f.service.createApi("animation", () => {}), c = canvas(), view = api.mount(c);
+  try {
+    const first = view.render();
+    api.setPlayback({ playing: true });
+    for (let i = 0; i < 5; i++) {
+      now += 83;
+      t.mock.timers.tick(83);
+      await tick();
+    }
+    assert.equal(f.jobs.length, 1);
+    f.jobs[0].finish();
+    assert.equal((await first).presented, true);
+    assert.equal(c.paints.length, 1);
+    now += 83;
+    t.mock.timers.tick(83);
+    assert.equal(f.jobs.length, 2);
+    assert.ok(f.jobs[1].request.time > f.jobs[0].request.time);
+    now += 500;
+    t.mock.timers.tick(498);
+    f.jobs[1].finish(); await tick();
+    assert.equal(c.paints.length, 2);
+    const opened = api.open(); f.jobs.at(-1).finish(); await opened;
+    const count = f.jobs.length;
+    now += 83; t.mock.timers.tick(83);
+    f.jobs.at(-1).finish(); await tick();
+    assert.equal(f.jobs.length, count + 1);
+    assert.equal(c.paints.length, 2);
+    api.close();
+    now += 83; t.mock.timers.tick(83);
+    f.jobs.at(-1).finish(); await tick();
+    assert.equal(c.paints.length, 3);
+  } finally { f.service.dispose(); }
+});
+
+test("拖拽期间取消待呈现帧，恢复时取当前时间，释放后不再订阅时钟", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  const f = fixture(), api = f.service.createApi("gesture", () => {}), c = canvas(), view = api.mount(c);
+  try {
+    const first = view.render(); f.jobs[0].finish(); await first;
+    api.setPlayback({ playing: true });
+    now += 83; t.mock.timers.tick(83);
+    view.setActive(false);
+    f.jobs[1].finish(); await tick();
+    assert.equal(c.paints.length, 1);
+    now += 500; t.mock.timers.tick(498);
+    assert.equal(f.jobs.length, 2);
+    api.setPlayback({ time: 2, playing: false });
+    assert.equal(f.jobs.length, 2);
+    view.setActive(true);
+    assert.equal(f.jobs[2].request.time, 2);
+    f.jobs[2].finish(); await tick();
+    assert.equal(c.paints.length, 2);
+    view.dispose();
+    assert.equal(api.status().clockSubscribers, 1);
+    api.setPlayback({ playing: true });
+    now += 500; t.mock.timers.tick(498);
+    assert.equal(f.jobs.length, 3);
+  } finally { f.service.dispose(); }
 });

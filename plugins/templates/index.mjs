@@ -1,3 +1,4 @@
+import { adoptComponents } from "../../packages/workflow-tools/custom-component-import.mjs";
 import { copyJson } from "../../packages/plugin-sdk/schema.mjs";
 import {
   templateOperations,
@@ -53,6 +54,7 @@ export function validateFragment(fragment) {
 /** 通过一次公开事务展开，按当前图分配可读且唯一的 ID，同步重连内部连线。 */
 export function instantiate(fragment, x = 100, y = 100, existingIds = []) {
   const graph = validateFragment(fragment);
+  adoptComponents(graph);
   if (![x, y].every(Number.isFinite)) throw Error("模板插入坐标必须为有限数值");
   const minX = Math.min(...graph.nodes.map((n) => n.canvasX)),
     minY = Math.min(...graph.nodes.map((n) => n.canvasY));

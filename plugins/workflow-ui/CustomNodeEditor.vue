@@ -9,6 +9,7 @@ const props = defineProps<{
     props.session.ui.components;
 const draft = reactive({
   title: "",
+  typeSuffix: "",
   parameters: [] as any[],
   code: "",
   targets: [] as string[],
@@ -16,25 +17,28 @@ const draft = reactive({
 });
 function load() {
   const d = props.definition;
-  draft.title = d?.title || "Custom Node";
+  draft.typeSuffix = d?.typeId?.slice("custom.glsl.".length) || "";
+  draft.title = d?.title || "自定义节点";
   draft.parameters = JSON.parse(
     JSON.stringify(
-      d?.properties?.parameters || [
+      d?.glsl?.parameters || [
         { id: "uv", name: "uv", type: "VEC2", qualifier: "in" },
         { id: "value", name: "value", type: "FLOAT", qualifier: "out" },
       ],
     ),
   ).map((p: any) => ({ ...p, type: p.type.toUpperCase() }));
-  draft.code = d?.properties?.code || "value = 0.0;";
-  draft.targets = [
-    ...(d?.properties?.sourceTargets || ["glsl-es-300", "glsl-430"]),
-  ];
+  draft.code = d?.glsl?.code || "value = 0.0;";
+  draft.targets = [...(d?.targets || ["glsl-es-300", "glsl-430"])];
   draft.error = "";
 }
 const crypto = globalThis.crypto;
-watch([() => props.definition?.typeId, () => props.nodeId], load, {
-  immediate: true,
-});
+watch(
+  [() => JSON.stringify(props.definition ?? null), () => props.nodeId],
+  load,
+  {
+    immediate: true,
+  },
+);
 function target(id: string, checked: boolean) {
   draft.targets = checked
     ? [...draft.targets.filter((x) => x !== id), id]
@@ -42,37 +46,33 @@ function target(id: string, checked: boolean) {
 }
 async function save() {
   try {
-    const title = draft.title.trim() || "Custom Node";
-    await props.session.action("UPSERT_CUSTOM_NODE", {
+    const title = draft.title.trim() || "自定义节点";
+    const result = await props.session.action("UPSERT_CUSTOM_NODE", {
       definition: {
         ...(props.definition?.typeId
           ? { typeId: props.definition.typeId }
-          : {}),
+          : {
+              createOnly: true,
+              ...(draft.typeSuffix.trim()
+                ? { typeId: "custom.glsl." + draft.typeSuffix.trim() }
+                : {}),
+            }),
         title,
         parameters: draft.parameters.map((p) => ({
           ...p,
           name: p.name.trim(),
         })),
         code: draft.code,
-        helperSource: props.definition?.properties?.helperSource || "",
+        helperSource: props.definition?.glsl?.helpers || "",
         sourceTargets: draft.targets,
       },
     });
-    if (props.nodeId)
-      await props.session.batch([
-        { type: "RENAME_NODE", payload: { nodeId: props.nodeId, title } },
-      ]);
-    else if (props.session.model.custom) {
+    if (!props.nodeId && props.session.model.custom) {
+      const typeId = result.result.typeId;
       const saved = props.session.workflow
         .snapshot()
-        .catalog.find(
-          (node: any) =>
-            node.typeId === props.definition?.typeId ||
-            (!props.definition?.typeId &&
-              node.title === title &&
-              node.typeId.startsWith("custom.")),
-        );
-      if (saved) props.session.model.custom = { definition: saved };
+        .customNodes.find((n: any) => n.typeId === typeId);
+      props.session.model.custom = { definition: saved };
     }
     draft.error = "";
     props.session.report("已保存自定义节点：" + title);
@@ -83,9 +83,24 @@ async function save() {
 }
 </script>
 <template>
+  <p class="type-hint">
+    保存到「自定义 GLSL 节点」插件，同一类型在所有工作流中共用这份定义。
+  </p>
   <UiField class="field" label="节点名称"
     ><UiInput id="custom-editor-title" v-model="draft.title"
   /></UiField>
+  <UiField
+    class="field"
+    label="组件类型 ID"
+    hint="前缀为 custom.glsl.，留空将自动命名。保存后 ID 固定，已经放入画布的实例继续使用同一类型。"
+  >
+    <UiInput
+      id="custom-editor-type"
+      v-model="draft.typeSuffix"
+      :readonly="!!definition?.typeId"
+      placeholder="例如 glow"
+    />
+  </UiField>
   <section class="custom-parameter-editor">
     <div class="custom-parameter-heading">
       <label>函数参数</label><span>名称 · GLSL 类型 · I/O</span>

@@ -1,6 +1,6 @@
 # Workflow Studio 插件开发包
 
-解压后用 `examples/minimal-node` 创建第一个节点，用 `examples/minimal-panel` 创建设置面板。要同时提供顶点和片段节点、编译规则与可操作的面板，请看 [双阶段特效](examples/sdk-effect/README.md)。这些示例可直接在 Studio 的「插件 → 插件管理 → 添加本地插件」中选择目录登记。
+解压后用 `examples/minimal-node` 创建第一个节点，用 `examples/glsl-node` 直接写与界面节点相同的 GLSL 函数，用 `examples/minimal-panel` 创建设置面板。要同时提供顶点和片段节点、编译规则与可操作的面板，请看 [双阶段特效](examples/sdk-effect/README.md)。这些示例可直接在 Studio 的「插件 → 插件管理 → 添加本地插件」中选择目录登记。
 
 [中文 API 手册](../docs/PLUGIN_API_V1.md) · [架构与插件分图](https://github.com/Eb-Ling/MengGodWorkflowStudio/blob/v1.0.0/docs/ARCHITECTURE_V1.md)
 

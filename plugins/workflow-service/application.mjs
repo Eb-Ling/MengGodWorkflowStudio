@@ -1,4 +1,4 @@
-import { readDocument } from "../../packages/plugin-sdk/document.mjs";
+import { readWorkflowDocument as readDocument } from "../../packages/workflow-tools/custom-component-import.mjs";
 import { createEditorSession } from "./editor-session.mjs";
 import { createGraphSemantics } from "../../packages/workflow-tools/graph-semantics.mjs";
 import { documentPolicy } from "./document-policy.mjs";
@@ -67,6 +67,7 @@ export function createEditorApplication(ports, nodes) {
     action: dispatchAction,
   } = ports.access({
     snapshot: applicationSnapshot,
+    commandState: () => ({ ...documentStore.commandState(activeStage), documentToken: editorSession.token(), stage: activeStage }),
     store,
     action: executeEditorAction,
     session: editorSession,
@@ -158,15 +159,12 @@ export function createEditorApplication(ports, nodes) {
       ui.view.x = Number(payload.x) || 0;
       ui.view.y = Number(payload.y) || 0;
       ui.view.zoom = Math.max(0.35, Math.min(1.8, Number(payload.zoom) || 1));
-      updateView();
     } else if (type === "SET_SELECTION") {
       const valid = new Set(store.snapshot().nodes.map((node) => node.id));
       ui.selectedNodes = new Set(
         (payload.nodeIds || []).filter((id) => valid.has(id)),
       );
       ui.selected = [...ui.selectedNodes][0] || null;
-      renderGraph(store.snapshot());
-      renderInspector(store.snapshot());
     } else if (type === "DELETE_SELECTED") {
       const ids = [...ui.selectedNodes];
       ui.selectedNodes.clear();
@@ -198,29 +196,6 @@ export function createEditorApplication(ports, nodes) {
             payload: { nodeId: node.id, key: "previewEnabled", value: enabled },
           })),
         );
-    } else if (type === "UPSERT_CUSTOM_NODE") {
-      const definition = normalizeCustomDefinition(payload.definition);
-      updateCustomDefinition(definition);
-      const current = store.snapshot(),
-        cleaned = clone(current);
-      pruneInvalidLinks(cleaned);
-      const removed = current.links.filter(
-        (link) =>
-          !cleaned.links.some(
-            (item) => JSON.stringify(item) === JSON.stringify(link),
-          ),
-      );
-      if (removed.length)
-        graphCommands.batch(
-          removed.map((link) => ({ type: "DISCONNECT", payload: { link } })),
-        );
-      renderCatalog();
-    } else if (type === "DELETE_CUSTOM_NODE") {
-      const typeId = String(payload.typeId || "");
-      if (isUserCustomNode(typeId)) {
-        nodes.removeCustom(typeId);
-        renderCatalog();
-      }
     } else throw new Error(`未知工作流操作：${type}`);
     editorSession.changed();
   }
@@ -256,60 +231,6 @@ export function createEditorApplication(ports, nodes) {
   function normalizeGeometryInput(payload = {}) {
     return normalizeTransform(payload);
   }
-  function normalizeCustomDefinition(value) {
-    if (!value || typeof value !== "object")
-      throw new Error("definition 必须是对象");
-    const title = String(value.title || "Custom Node").trim() || "Custom Node",
-      typeId = String(value.typeId || customTypeId(title));
-    if (!/^custom\.[A-Za-z0-9._-]+$/.test(typeId))
-      throw new Error("自定义节点 typeId 必须以 custom. 开头");
-    const sourceTargets =
-      value.properties?.sourceTargets ?? value.sourceTargets;
-    if (
-      !Array.isArray(sourceTargets) ||
-      !sourceTargets.length ||
-      sourceTargets.some(
-        (target) => !["glsl-es-300", "glsl-430"].includes(target),
-      )
-    )
-      throw new Error("自定义 GLSL 必须明确选择支持的编译目标");
-    const parameters = value.properties?.parameters || value.parameters;
-    if (Array.isArray(parameters)) {
-      const names = new Set(),
-        clean = parameters.map((parameter, index) => ({
-          id: String(parameter.id || `p${index}`),
-          name: String(parameter.name || ""),
-          type: typeKey(parameter.type),
-          qualifier: String(parameter.qualifier || "in"),
-        }));
-      if (
-        !clean.length ||
-        !clean.every(
-          (parameter) =>
-            /^[A-Za-z_][A-Za-z0-9_]*$/.test(parameter.name) &&
-            isSupportedType(parameter.type) &&
-            ["in", "out", "inout"].includes(parameter.qualifier) &&
-            !names.has(parameter.name) &&
-            (names.add(parameter.name), true),
-        )
-      )
-        throw new Error(
-          "自定义节点参数无效：名称必须唯一，并使用 GLSL 类型和 in/out/inout。",
-        );
-      const code = String(value.properties?.code ?? value.code ?? "");
-      if (!code.trim()) throw new Error("自定义节点函数体不能为空");
-      return customDefinition(
-        title,
-        typeId,
-        clean,
-        code,
-        String(value.properties?.helperSource ?? value.helperSource ?? ""),
-        [...new Set(sourceTargets)],
-      );
-    }
-    throw new Error("自定义节点必须使用 parameters/code 协议");
-  }
-
   function updateView() {
     editorSession.changed();
   }
@@ -323,76 +244,8 @@ export function createEditorApplication(ports, nodes) {
   function renderCatalog() {
     editorSession.changed();
   }
-  function isUserCustomNode(typeId) {
-    return (
-      typeId.startsWith("custom.") &&
-      !["custom.radialFade", "custom.innerFade"].includes(typeId)
-    );
-  }
-
   function renderGraph() {
     editorSession.changed();
-  }
-
-  function customTypeId(title) {
-    return `custom.${
-      String(title)
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ".")
-        .replace(/^\.|\.$/g, "") || "node"
-    }`;
-  }
-  function customFunctionName(title) {
-    return `wf_custom_${
-      String(title)
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^\d/, "_") || "node"
-    }`;
-  }
-
-  function customDefinition(
-    title,
-    typeId,
-    parameters,
-    code,
-    helperSource = "",
-    sourceTargets = ["glsl-es-300", "glsl-430"],
-  ) {
-    const normalized = parameters.map((parameter, index) => ({
-      id: String(parameter.id || `p${index}`),
-      name: String(parameter.name || `value${index}`),
-      type: typeLabel(parameter.type),
-      qualifier: parameter.qualifier,
-    }));
-    const resolvedTypeId = typeId || customTypeId(title);
-    return {
-      typeId: resolvedTypeId,
-      title: title || "Custom Node",
-      category: "自定义 GLSL",
-      inputs: normalized
-        .filter((p) => p.qualifier !== "out")
-        .map((p) => ({ name: p.name, type: p.type })),
-      outputs: normalized
-        .filter((p) => p.qualifier !== "in")
-        .map((p) => ({ name: p.name, type: p.type })),
-      properties: {
-        custom: true,
-        functionName: customFunctionName(resolvedTypeId),
-        parameters: normalized,
-        code: String(code || ""),
-        helperSource: String(helperSource || ""),
-        sourceTargets: [...sourceTargets],
-      },
-    };
-  }
-
-  function updateCustomDefinition(definition) {
-    if (!actionDepth)
-      return dispatchAction("UPSERT_CUSTOM_NODE", { definition });
-    nodes.setCustom(definition);
   }
 
   function projectConfig() {
@@ -478,9 +331,6 @@ export function createEditorApplication(ports, nodes) {
     renderCatalog();
   }
 
-  function workflowLibrary() {
-    return workflowService.library();
-  }
   function newWorkflowConfig() {
     return workflowService.newConfig();
   }
@@ -563,31 +413,23 @@ export function createEditorApplication(ports, nodes) {
   updateStageUI();
 
   function applicationSnapshot() {
+    const document = documentStore.snapshot(), resolution = previewResolution(document.project);
     return {
       documentToken: editorSession.token(),
       catalogRevision,
-      documentRevision: documentStore.snapshot().revision,
-      document: documentStore.snapshot(),
-      dependencyDiagnostics: Object.entries(documentStore.snapshot().graphs).flatMap(([stage, graph]) =>
+      documentRevision: document.revision,
+      document,
+      dependencyDiagnostics: Object.entries(document.graphs).flatMap(([stage, graph]) =>
         graph.nodes.map((node) => dependencyIssue(node, stage)).filter(Boolean)),
       history: documentStore.history(activeStage),
       stage: activeStage,
-      graph: store.snapshot(),
-      fragmentGraph: currentFragmentGraph(),
-      project: projectConfig(),
-      vertexTransform: currentVertexTransform(),
+      graph: document.graphs[activeStage],
+      fragmentGraph: document.graphs.fragment,
+      project: { ...document.project, previewWidth: resolution.width, previewHeight: resolution.height },
+      vertexTransform: { ...document.geometry, graph: document.graphs.vertex },
       selection: [...ui.selectedNodes],
       view: { x: ui.view.x, y: ui.view.y, zoom: ui.view.zoom },
-      savedWorkflows: workflowLibrary().map((item) => ({
-        id: item.id,
-        title: item.config.title,
-        className: item.config.className,
-        shaderDir: item.config.shaderDir,
-        nodeCount: item.graph.nodes.length,
-        linkCount: item.graph.links.length,
-        file: item.file,
-      })),
-      customNodes: nodes.customNodes(),
+      savedWorkflows: workflowService.repository.librarySummaries(),
       workflowNodes: [],
       generatedSources: lastGeneratedSources,
       catalog: catalog
@@ -598,6 +440,7 @@ export function createEditorApplication(ports, nodes) {
         )
         .map(
           ({
+            owner,
             typeId,
             title,
             category,
@@ -605,9 +448,11 @@ export function createEditorApplication(ports, nodes) {
             outputs,
             properties,
             propertySchema,
+            glsl,
             stages,
             targets,
           }) => ({
+            owner,
             typeId,
             title,
             category,
@@ -615,6 +460,7 @@ export function createEditorApplication(ports, nodes) {
             outputs,
             properties,
             propertySchema,
+            glsl,
             stages,
             targets,
           }),
@@ -647,7 +493,9 @@ export function createEditorApplication(ports, nodes) {
       },
       backup: ({ id }) => workflowService.repository.backup(id),
     },
-    workflowApi,
+    workflowApi: { ...workflowApi, revision: () => ({
+      documentToken: editorSession.token(), documentRevision: documentStore.revision(), stage: activeStage, catalogRevision,
+    }) },
     workflowMetadata,
   };
 }

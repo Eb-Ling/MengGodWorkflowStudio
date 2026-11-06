@@ -284,12 +284,10 @@ test("P5 会话使用最新修订，拒绝旧文档回调，切阶段清空局�
   data.documentToken = "open-2";
   await assert.rejects(session.execute({ commands: [] }, original), /过期/);
   session.model.custom = { draft: true };
-  session.model.time = 8;
   data.stage = "vertex";
   for (const f of subscribers) f();
   await Promise.resolve();
   assert.equal(session.model.custom, null);
-  assert.equal(session.model.time, 0);
   assert.equal(session.snapshot.value.stage, "vertex");
   session.dispose();
   assert.equal(subscribers.size, 0);
@@ -298,4 +296,38 @@ test("P5 会话使用最新修订，拒绝旧文档回调，切阶段清空局�
     session.batch([{ type: "DELETE_NODE", payload: { nodeId: "constant" } }]),
     /停用/,
   );
+});
+
+test("三个节点连续平移只更新一层变换，不量端口、不读新快照，松开只提交一次", async () => {
+  const { createGraphGestures } = await import("../plugins/workflow-ui/gestures.ts");
+  const { createRenderer, shallowRef, h } = await import("vue");
+  const listeners = new Map(), frames = new Map(), submissions = [];
+  const prior = Object.fromEntries(["window","requestAnimationFrame","cancelAnimationFrame"].map(k => [k, globalThis[k]]));
+  let frame = 0, measured = 0, session, app;
+  try {
+    globalThis.window = { addEventListener: (type, fn) => listeners.set(type, fn), removeEventListener: type => listeners.delete(type) };
+    globalThis.requestAnimationFrame = fn => (frames.set(++frame, fn), frame);
+    globalThis.cancelAnimationFrame = id => frames.delete(id);
+    const viewport = { focus() {}, setPointerCapture() {}, hasPointerCapture: () => false,
+      getBoundingClientRect() { throw Error("平移不应读取布局"); } };
+    const snapshot = shallowRef({ view: { x: 0, y: 0, zoom: 0.6 }, graph: { nodes: [{id:"a"},{id:"b"},{id:"c"}] }, selection: [] });
+    const s = { snapshot, model: {}, workflow: { activity() {}, snapshot() { throw Error("平移不应读取文档"); } },
+      action: async (name, value) => { submissions.push([name, {...value}]); snapshot.value = { ...snapshot.value, view: {...value} }; } };
+    const renderer = createRenderer({ createElement: () => ({}), insert() {}, patchProp() {}, remove() {}, setElementText() {} });
+    app = renderer.createApp({ setup() { session = createGraphGestures(s, {value:viewport}, () => measured++); return () => h("div"); } });
+    app.mount({});
+    const event = (x,y) => ({ pointerId:1, button:0, clientX:x, clientY:y, target:{closest:()=>null}, preventDefault(){} });
+    session.background(event(100,100));
+    for (let i=1; i<=90; i++) listeners.get("pointermove")(event(100+i,100+i));
+    assert.equal(frames.size,1);
+    [...frames.values()][0]();
+    assert.deepEqual({...session.view.value},{x:90,y:90,zoom:0.6});
+    assert.equal(submissions.length,0);
+    await listeners.get("pointerup")(event(193,192));
+    assert.deepEqual(submissions,[["SET_VIEW",{x:93,y:92,zoom:0.6}]]);
+    assert.equal(measured,0);
+  } finally {
+    app?.unmount();
+    for (const [k,v] of Object.entries(prior)) if (v === undefined) delete globalThis[k]; else globalThis[k]=v;
+  }
 });

@@ -9,7 +9,7 @@ export function createNodeContributions(initial) {
     nodes: definitions.map(({ owner, version, ...node }) => node),
     compilers: [],
   });
-  let builtin = registry.register(
+  const builtin = registry.register(
     "studio.builtin",
     "1.0.0",
     contribution(initial),
@@ -18,19 +18,6 @@ export function createNodeContributions(initial) {
   const sync = () => catalog.splice(0, catalog.length, ...registry.list());
   const off = registry.subscribe(sync);
   sync();
-  function replaceBuiltins() {
-    const definitions = catalog.filter(
-      (node) => !node.owner || node.owner === "studio.builtin",
-    );
-    const batch = contribution(definitions);
-    new ContributionRegistry().register("studio.builtin", "1.0.0", batch, {
-      builtinDefinitions: true,
-    });
-    builtin.dispose();
-    builtin = registry.register("studio.builtin", "1.0.0", batch, {
-      builtinDefinitions: true,
-    });
-  }
   /** 为指定插件创建贡献接口，宿主同时登记清理，即使插件遗漏 onDispose 也能回收。 */
   /** @param {string} owner @param {(cleanup:()=>void)=>void} onDispose */
   function createApi(
@@ -43,7 +30,8 @@ export function createNodeContributions(initial) {
       get: (typeId) => registry.get(typeId),
       register: (batch) => {
         const handle = registry.register(owner, metadata.version, batch, { fingerprint: metadata.fingerprint ?? null });
-        return ownRegistration(onDispose, handle);
+        const owned = ownRegistration(onDispose, handle);
+        return { owner, get active() { return owned.active; }, dispose: owned.dispose, replace: handle.replace };
       },
     };
   }
@@ -62,7 +50,6 @@ export function createNodeContributions(initial) {
   return {
     registry: port,
     catalog,
-    replaceBuiltins,
     createApi,
     dispose() {
       off();

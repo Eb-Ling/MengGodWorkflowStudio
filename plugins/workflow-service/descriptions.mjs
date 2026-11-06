@@ -30,8 +30,8 @@ export function createNodeDescription(typeLabel) {
         "按 UV 坐标采样 SAMPLER2D，输出 RGBA（VEC4）。预览与导出都会保持纹理比例并对画布外区域透明处理。",
     };
     if (special[definition.typeId]) return special[definition.typeId];
-    if (definition.typeId.startsWith("custom."))
-      return "执行用户定义的 GLSL void 函数。参数表采用 GLSL 的 in、out、inout：in 只有输入端口，out 只有输出端口，inout 同时具有输入和输出端口。单击画布实例或双击左侧节点库条目即可编辑定义。";
+    if (definition.glsl)
+      return "执行用户定义的 GLSL void 函数。参数表采用 GLSL 的 in、out、inout：in 只有输入端口，out 只有输出端口，inout 同时具有输入和输出端口。节点由所属插件提供。";
     const category =
       {
         数学: "对输入执行 GLSL 数学运算。",

@@ -4,6 +4,7 @@ import { createCommandGateway } from "../../packages/kernel/index.mjs";
 // the same guarded transaction entry. The SDK facade never exposes the store.
 export function createWorkflowAccess({
   snapshot,
+  commandState = snapshot,
   store,
   action,
   session,
@@ -11,6 +12,7 @@ export function createWorkflowAccess({
 }) {
   const gateway = createCommandGateway({
     snapshot,
+    commandState,
     graphTransaction: (items) => store.batch(items),
     documentTransaction: document
       ? (input) => {
@@ -27,7 +29,7 @@ export function createWorkflowAccess({
   });
   const batch = (commands) => {
     if (!commands.length) return { ok: true };
-    const current = snapshot();
+    const current = commandState();
     return gateway.execute({
       documentId: current.project.id,
       documentToken: current.documentToken,
@@ -39,7 +41,7 @@ export function createWorkflowAccess({
   return {
     action: (type, payload = {}) => {
       store.endGesture?.();
-      const current = snapshot();
+      const current = commandState();
       return gateway.execute({
         documentId: current.project.id,
         documentToken: current.documentToken,

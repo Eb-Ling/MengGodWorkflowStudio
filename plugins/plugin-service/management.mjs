@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 /** studio.plugins 的宿主适配：管理界面只调用此 API，挂载统一委托内核。 */
 export function createPluginManagement({
   host,
@@ -353,8 +354,7 @@ export function createPluginManagement({
         ...api,
         subscribe(fn) {
           const stop = api.subscribe(fn);
-          own(stop);
-          return stop;
+          return ownCleanup(own, stop);
         },
       };
     },

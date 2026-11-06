@@ -7,6 +7,7 @@
     ".": "./index.mjs",
     "./types": "./types.ts",
     "./regions": "./regions.mjs",
+    "./custom-component-import": "./custom-component-import.mjs",
     "./defaults": "./defaults.mjs",
     "./ui-types": "./ui-types.ts",
     "./interaction-types": "./interaction-types.ts",

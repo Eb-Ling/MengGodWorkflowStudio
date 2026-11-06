@@ -17,6 +17,8 @@ export function createDocumentController({
   // L2 只取得 L1 方法外观，不交付 DocumentStore 实例。
   const document = Object.fromEntries(
     [
+      "revision",
+      "commandState",
       "snapshot",
       "graph",
       "transact",

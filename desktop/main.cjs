@@ -191,6 +191,7 @@ async function createWindow() {
     "studio.ui": "ui",
     "studio.plugin-manager": "plugin-manager",
     "studio.mcp": "mcp",
+    "custom.glsl": "custom-nodes",
     "studio.noise": "noise",
     "studio.math": "math",
     "studio.sdf": "sdf",
@@ -336,7 +337,7 @@ ipcMain.on("workflowDesktop:storage", (event, method, ...args) => {
   try {
     if (
       !isTrustedMain(event) ||
-      !["getItem", "setItem", "setItems", "removeItem"].includes(method)
+      !["getVersion", "getItem", "setItem", "setItems", "removeItem"].includes(method)
     )
       throw new Error("存储调用来源或方法无效");
     event.returnValue = {

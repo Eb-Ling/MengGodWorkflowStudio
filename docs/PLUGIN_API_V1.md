@@ -62,6 +62,32 @@ export const plugin = {
 
 用 `context.onDispose(fn)` 回收订阅、计时器和外部资源。停用后不得继续使用旧代理，重新加载获得新上下文。[上下文和通用类型](../packages/plugin-sdk/types.ts) · [目录插件声明与管理接口](../packages/plugin-sdk/plugin-management-types.ts)
 
+## 用同一协议发布 GLSL 节点
+
+界面中的「自定义 GLSL 节点」是插件 `custom.glsl`。它通过 `workflow.operations` 登记 `custom.glsl.upsert` 与 `custom.glsl.remove`，工作区按名称执行。卸载后两个操作自动消失，画布与 MCP 保持运行。每个定义是插件的一项组件，目录插件可以用自己的命名空间提交相同的声明。在 `kind: "nodes"` 的目录清单中声明 `workflow.nodes` 和 `nodes.register`，入口可以这样写：
+
+```js
+import { defineGlslNode } from '@workflow/plugin-sdk/glsl-node'
+
+export const plugin = {
+  activate(context) {
+    const node = defineGlslNode({
+      typeId: context.pluginId + '.tint',
+      title: '暖色',
+      targets: ['glsl-es-300', 'glsl-430'],
+      glsl: {
+        name: 'mymod_warm_tint',
+        parameters: [{ name: 'color', type: 'VEC4', qualifier: 'out' }],
+        code: 'color = vec4(1.0, 0.4, 0.2, 1.0);'
+      }
+    })
+    context.api('workflow.nodes').register({ nodes: [node], compilers: [] })
+  }
+}
+```
+
+`in` 生成输入，`out` 生成输出，`inout` 同时生成两者。函数与端口在登记时一起校验。已有 IR 节点仍可使用逐目标回调，同一个节点只选一种实现。[可安装的 GLSL 目录插件](../build/examples/glsl-node/index.mjs) 使用相同入口。两者均按组件的所有者、类型 ID 和端口签名恢复工作流。界面只管理自己的组件，不会修改第三方插件目录。改变已使用组件的端口签名后，原连线会保留并提示契约不匹配，可以恢复原签名或明确替换画布实例。
+
 ## 编辑、事务与面板
 
 清单声明 `workflow.editor` 与 `workflow.read`、`workflow.write` 后，可在按钮回调里读取当前快照并提交一次操作：
@@ -252,14 +278,13 @@ engine.addLayeredRenderingPlugin(effect);
 
 ### workflow.node-catalog
 
-读取定义副本并订阅目录变化，自定义定义写入由编辑能力负责。
+只读节点目录及变更订阅。
 
 提供者：[node-model/manifest.mjs](../plugins/node-model/manifest.mjs)，版本 `1.0.0`，契约类型 `local`。 [SDK 类型](../packages/plugin-sdk/types.ts)
 
 | 能力 | 方法 |
 | --- | --- |
-| `nodes.read` | `list`、`subscribe`、`customNodes` |
-| `nodes.configure` | `setCustom`、`removeCustom` |
+| `nodes.read` | `list`、`subscribe` |
 
 ### workflow.nodes
 
@@ -296,13 +321,13 @@ engine.addLayeredRenderingPlugin(effect);
 
 ### workflow.preview
 
-按节点、时间和尺寸获取图片，或在受信任界面挂载画布。
+顶点与片段的时间节点、几何和高清视框共用预览时钟。可见画布随时间播放，高清视框打开期间暂停普通画布的动画。mount 返回的 setActive 可在拖拽或隐藏时暂停画布，恢复时绘制当前时间。status 的 mountedFrames 统计普通画布实际呈现次数。高清窗口只绘制可见区域，切换阶段或文档会关闭旧窗口并释放该视图的 GPU 资源。setPlayback 设置秒数或播放状态，subscribePlayback 立即订阅。frame 和 open 省略 time 时跟随时钟，显式传 time 可固定采样。
 
 提供者：[preview/manifest.mjs](../plugins/preview/manifest.mjs)，版本 `1.0.0`，契约类型 `local`。 [SDK 类型](../packages/plugin-sdk/types.ts)
 
 | 能力 | 方法 |
 | --- | --- |
-| `preview.render` | `mount`、`frame`、`open`、`close`、`status`、`compilationStatus` |
+| `preview.render` | `mount`、`frame`、`open`、`close`、`status`、`compilationStatus`、`subscribePlayback`、`setPlayback` |
 
 ### workflow.file-selection
 
@@ -373,13 +398,13 @@ engine.addLayeredRenderingPlugin(effect);
 
 ### workflow.editor
 
-读取双阶段快照、检查器和修订，按事务提交编辑并订阅变化。
+revision() 只读文档、阶段和节点目录的修订标记，不复制图。snapshot() 读取双阶段快照，inspect() 读取检查器，按事务提交编辑并订阅变化。
 
 提供者：[workflow-service/manifest.mjs](../plugins/workflow-service/manifest.mjs)，版本 `1.0.0`，契约类型 `local`。 [SDK 类型](../packages/plugin-sdk/types.ts)
 
 | 能力 | 方法 |
 | --- | --- |
-| `workflow.read` | `snapshot`、`inspect`、`subscribe`、`onActivity`、`activity` |
+| `workflow.read` | `revision`、`snapshot`、`inspect`、`subscribe`、`onActivity`、`activity` |
 | `workflow.write` | `execute`、`edit`、`addNode`、`setProperty` |
 | `ui.status` | `report` |
 
@@ -413,7 +438,7 @@ engine.addLayeredRenderingPlugin(effect);
 
 | 能力 | 方法 |
 | --- | --- |
-| `workflow.read` | `snapshot`、`subscribe`、`onActivity`、`inspect`、`activity`、`preferences` |
+| `workflow.read` | `revision`、`snapshot`、`subscribe`、`onActivity`、`inspect`、`activity`、`preferences` |
 | `workflow.write` | `execute`、`edit`、`addNode`、`setProperty` |
 | `ui.status` | `report` |
 
@@ -454,6 +479,7 @@ engine.addLayeredRenderingPlugin(effect);
 | `workflow_get_compilation_status` | 无 | 需要 |
 | `workflow_close_preview` | 无 | 需要 |
 | `workflow_open_preview` | `nodeId?`、`socket?`、`longEdge?`、`time?` | 需要 |
+| `workflow_set_preview_time` | `time?`、`playing?` | 需要 |
 | `workflow_render_preview` | `nodeId?`、`socket?`、`width?`、`height?`、`longEdge?`、`format?`、`time?` | 需要 |
 | `workflow_get_status` | 无 | 不需要 |
 | `workflow_get_summary` | 无 | 不需要 |

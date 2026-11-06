@@ -131,7 +131,7 @@ export function acceptanceSession(client) {
     checks.push('批量坐标/颜色/几何参数三文件导出，顶点预览，双阶段事务、联合撤销和失败回滚，高清宽高比与视框');
     for(const mode of ['Loop','IfTrue','IfFalse']) {
       await fresh(mode);
-      const typeId='custom.final'+mode;
+      const typeId='custom.glsl.final'+mode;
       const definition={typeId,title:'MCP '+mode,properties:{
         parameters:mode==='Loop'?[{name:'value',type:'FLOAT',qualifier:'inout'},{name:'color',type:'VEC4',qualifier:'out'}]:[{name:'a',type:'FLOAT',qualifier:'in'},{name:'b',type:'FLOAT',qualifier:'in'},{name:'color',type:'VEC4',qualifier:'out'}],
         code:mode==='Loop'?'value = unitScale(value); color = vec4(value,0.0,0.0,1.0);':'color = vec4(a,b,0.0,1.0);',
@@ -171,7 +171,7 @@ export function acceptanceSession(client) {
     const results=[];
     const texture=await frame({width:8,height:8});
     for(const d of definitions.slice(start,start+count)){
-      if(!d.outputs.length||['input.texture','logic.for','logic.variable'].includes(d.typeId)||d.typeId.startsWith('custom.final'))continue;
+      if(!d.outputs.length||['input.texture','logic.for','logic.variable'].includes(d.typeId)||d.typeId.startsWith('custom.glsl.final'))continue;
       const properties={...d.properties};if(d.typeId==='io.input')Object.assign(properties,{uniform:'u_probe',valueType:'FLOAT'});if(d.typeId==='studio.math.vector.combine')properties.valueType='VEC4';
       try{
         const setup=[add('catalog_probe',d.typeId,properties)];

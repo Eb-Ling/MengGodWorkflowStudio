@@ -22,10 +22,6 @@ export function createWorkspacePorts() {
     operationApi: (...args) => operations.createApi(...args),
     invalidateNodes: (owner) => nodes?.registry.invalidate(owner),
     nodeRegistry: {
-      preferences: () => ({
-        getItem: (key) => preferences.getItem(key),
-        setItem: (key, value) => preferences.setItem(key, value),
-      }),
       contributions(initial) {
         nodes = createNodeContributions(initial);
         return nodes;

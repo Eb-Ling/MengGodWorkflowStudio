@@ -26,8 +26,6 @@ export function createViewSession({
     search: "",
     custom: null,
     message: "",
-    timeEnabled: false,
-    time: 0,
     collapsed: [],
     strategies: [],
     serial: 0,
@@ -46,21 +44,29 @@ export function createViewSession({
       if (!live) return;
       const next = workflow.snapshot();
       if (
+        (snapshot.value.customNodeEditing && !next.customNodeEditing) ||
         next.documentToken !== snapshot.value.documentToken ||
         next.stage !== snapshot.value.stage
       ) {
         model.custom = null;
-        model.timeEnabled = false;
-        model.time = 0;
       }
+      const previous = snapshot.value;
+      const graphChanged = ["documentToken", "stage", "documentRevision", "catalogRevision"].some(
+        key => next[key] !== previous[key]) || next.graph.revision !== previous.graph.revision;
+      if (next.selection.length === previous.selection.length &&
+        next.selection.every((id, i) => id === previous.selection[i])) next.selection = previous.selection;
       snapshot.value = frozen(next);
-      projection.value = frozen(workflow.inspect());
-      model.strategies = interaction?.list() || [];
-      model.serial++;
+      if (graphChanged) projection.value = frozen(workflow.inspect());
+
     });
   };
+  function refreshStrategies() {
+    model.strategies = interaction?.list() || [];
+    model.serial++;
+  }
+  refreshStrategies();
   const stop = workflow.subscribe(refresh),
-    stopStrategies = interaction?.subscribe(refresh);
+    stopStrategies = interaction?.subscribe(refreshStrategies);
   refresh();
   const report = (message) => {
     model.message = String(message);

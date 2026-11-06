@@ -142,10 +142,7 @@ test('catalog and example factories do not share mutable node definitions', () =
   first[0].title = 'changed'; first[0].properties.external = true;
   assert.notEqual(second[0].title, 'changed');
   assert.equal(second[0].properties.external, undefined);
-  const definition = {typeId: 'custom.test', title: 'test', properties: {}, inputs: [], outputs: []};
-  const custom = createNodeCatalog({customNodes: [definition]}).at(-1);
-  custom.properties.changed = true;
-  assert.deepEqual(definition.properties, {});
+  assert.ok(first.every(n => !n.typeId.startsWith('custom.')), '基础节点目录不包含插件组件');
 });
 
 test('domain/service modules do not reach into DOM/storage globals or UI entry points', async () => {

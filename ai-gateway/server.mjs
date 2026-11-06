@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { createStudioServer } from "../packages/native-host/index.mjs";
 import { mcpServerPlugin } from "../plugins/mcp/server-plugin.mjs";
+import { customNodesManifest } from "../plugins/custom-nodes/manifest.mjs";
 import { noiseManifest } from "../plugins/noise/manifest.mjs";
 import { mathManifest } from "../plugins/math/manifest.mjs";
 import { sdfManifest } from "../plugins/sdf/manifest.mjs";
@@ -46,6 +47,7 @@ const browserConfigurationPlugins = [
   projectUiManifest,
   mathManifest,
   sdfManifest,
+  customNodesManifest,
   noiseManifest,
   glslManifest,
   compilerManifest,

@@ -254,7 +254,7 @@ test("高清视框关闭、换文档和停用时拒绝迟到结果，失效帧�
   f.controller.close();
   f.finish();
   assert.equal((await pending).opened, false);
-  assert.equal(f.model.dataUrl, "");
+  assert.equal(f.model.width, 0);
   const p = f.controller.frame({ nodeId: "uv" });
   f.state.documentRevision++;
   f.finish();

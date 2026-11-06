@@ -15,6 +15,7 @@ export function createBridgeService({
   const editors = new Map(),
     pending = new Map();
   let activeId = null,
+    sweepTimer,
     sequence = 0,
     disposed = false;
   const connected = () =>
@@ -39,6 +40,25 @@ export function createBridgeService({
       if (entry.editorId === editorId)
         finish(id, { ok: false, error: message });
   }
+  function expireEditors() {
+    const time = now();
+    for (const [id, editor] of editors) {
+      if (time - editor.seenAt < leaseMs) continue;
+      cancelEditor(id, "编辑器连接已过期");
+      editors.delete(id);
+      if (activeId === id) activeId = null;
+    }
+  }
+  // 编辑器崩溃时没有 disconnect，桥接进程也必须自行丢弃旧文档和挂起的请求。
+  function scheduleSweep() {
+    if (sweepTimer || disposed || !editors.size) return;
+    sweepTimer = setTimeout(() => {
+      sweepTimer = undefined;
+      expireEditors();
+      scheduleSweep();
+    }, leaseMs);
+    sweepTimer.unref?.();
+  }
   const api = {
     state() {
       const editor = active();
@@ -55,6 +75,7 @@ export function createBridgeService({
       requireIdentity(input);
       if (!input.graph || !input.project || !input.documentToken)
         throw new Error("缺少工作流快照");
+      expireEditors();
       const previous = editors.get(input.editorId);
       if (previous && previous.incarnation !== input.incarnation)
         cancelEditor(input.editorId, "编辑器已重新加载，操作已取消");
@@ -63,9 +84,7 @@ export function createBridgeService({
         incarnation: input.incarnation,
         seenAt: now(),
       });
-      for (const [id, editor] of editors)
-        if (id !== activeId && now() - editor.seenAt > leaseMs)
-          editors.delete(id);
+      scheduleSweep();
       return {
         ok: true,
         active: !!connected() && activeId === input.editorId,
@@ -205,6 +224,11 @@ export function createBridgeService({
       });
     },
     pull(input) {
+      // 正常轮询即是心跳。仅已登记且仍有效的同代编辑器可续约，不抢占其他窗口。
+      const known = editors.get(input.editorId);
+      if (!known || known.incarnation !== input.incarnation || now() - known.seenAt >= leaseMs)
+        return { cursor: sequence, requests: [], needsState: true };
+      known.seenAt = now();
       const editor = active();
       if (
         !editor ||
@@ -262,6 +286,7 @@ export function createBridgeService({
     },
     dispose() {
       disposed = true;
+      clearTimeout(sweepTimer);
       for (const id of [...pending.keys()])
         finish(id, { ok: false, error: "MCP 插件已停用，待处理操作已取消" });
       editors.clear();

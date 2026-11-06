@@ -9,14 +9,16 @@ const entry = computed(() =>
     (e: any) => e.node.id === props.session.snapshot.value.selection[0],
   ),
 );
-const custom = computed(
-  () =>
-    props.session.model.custom ||
-    (entry.value?.node.typeId.startsWith("custom.") && {
-      definition: entry.value.definition,
-      nodeId: entry.value.node.id,
-    }),
-);
+const custom = computed(() => {
+  const s = props.session.snapshot.value;
+  if (!s.customNodeEditing) return null;
+  const draft = props.session.model.custom;
+  if (draft && !draft.definition) return draft;
+  const id = draft?.definition?.typeId ?? entry.value?.node.typeId;
+  const definition = s.customNodes.find((n: any) => n.typeId === id);
+  if (!definition || (!draft && entry.value?.missing)) return null;
+  return { definition, nodeId: draft ? undefined : entry.value?.node.id };
+});
 const readiness = computed(
   () =>
     props.session.snapshot.value.exportReadiness || {
@@ -26,16 +28,26 @@ const readiness = computed(
 );
 function fieldProps(field: any) {
   const nodeId = entry.value.node.id,
-    source = props.session.workflow.snapshot();
+    source = props.session.snapshot.value;
+  const isTime = entry.value.node.typeId === "input.time" && field.key === "defaultValue";
   return {
+    ...(isTime ? { preview: props.session.preview } : {}),
     controls: props.session.ui.components,
     nodeId,
     field,
     onCommit: async (value: unknown) => {
-      return props.session.workflow.setProperty(
+      // 播放不写文档。显式编辑才更新起始值，即使再次输入同一个数也能重置时钟。
+      if (isTime && Number(value) === Number(field.value)) {
+        const current = props.session.snapshot.value;
+        if (current.documentToken !== source.documentToken || current.stage !== source.stage ||
+          current.documentRevision !== source.documentRevision) throw Error("工作流已改变，请重新设置时间。");
+        return props.session.preview.setPlayback({ time: Number(value) });
+      }
+      const result = await props.session.workflow.setProperty(
         { nodeId, key: field.key, value },
         props.session.guard(source),
       );
+      return result;
     },
   };
 }

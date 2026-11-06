@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 import { workspaceManifest } from "./manifest.mjs";
 import { createWorkspaceService } from "./service.mjs";
 export const workspacePlugin = {
@@ -13,6 +14,7 @@ export const workspacePlugin = {
       files: context.hasApi("workflow.project-files")
         ? context.api("workflow.project-files")
         : null,
+      operations: context.api("workflow.operations"),
       templates: context.hasApi("workflow.templates")
         ? context.api("workflow.templates")
         : null,
@@ -26,13 +28,11 @@ export const workspacePlugin = {
       preferences: () => service.preferences(owner),
       subscribe(fn) {
         const off = service.subscribe(fn);
-        own(off);
-        return off;
+        return ownCleanup(own, off);
       },
       onActivity(fn) {
         const off = service.onActivity(fn);
-        own(off);
-        return off;
+        return ownCleanup(own, off);
       },
     }));
   },

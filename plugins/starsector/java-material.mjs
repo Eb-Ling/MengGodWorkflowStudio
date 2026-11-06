@@ -41,6 +41,57 @@ const signature = (layout, textures, single = false) =>
   constructorArguments(layout, textures, single)
     .map((p) => `${p.javaType} ${p.id}`)
     .join(", ");
+
+// 节点 ID 可来自外部工作流，避免它结束 Java 注释或触发 Unicode 转义。
+const commentText = (value) =>
+  String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\\", "&#92;")
+    .replaceAll("*/", "*&#47;")
+    .replace(/\s+/g, " ");
+
+function constructorComment(layout, textures, single) {
+  const description = single
+    ? [
+        "单点入口，直接传入中心坐标和本实例使用的参数。",
+        "坐标和向量会复制保存，跟随舰船时每帧更新 instance(0)。",
+      ]
+    : [
+        "批量入口，每个坐标创建一个实例。",
+        "每实例参数数组的第 i 项对应 positions.get(i)，数组长度必须与坐标数量一致。",
+      ];
+  return [
+    "    /**",
+    ...description.map((line) => "     * " + line),
+    "     *",
+    "     * @param layer 特效绘制图层",
+    single
+      ? "     * @param position 特效中心的世界坐标，可传 ship.getLocation()"
+      : "     * @param positions 各实例中心的世界坐标列表",
+    ...allParameters(layout, textures).map((p) => {
+      const source = p.geometryKey
+        ? `几何字段 ${p.geometryKey}`
+        : `${p.nodeId ? "节点 " + commentText(p.nodeId) + "，" : ""}工作流参数 ${p.id}，uniform 为 ${p.name}`;
+      const scope =
+        p.scope === "instance"
+          ? single
+            ? "当前实例的值"
+            : "按坐标顺序传入的每实例数组"
+          : "整批共用的值";
+      return `     * @param ${p.id} ${source}，${scope}`;
+    }),
+    "     */",
+  ].join("\n");
+}
+
+const constructorSignature = (layout, textures, single = false) =>
+  "\n" +
+  constructorArguments(layout, textures, single)
+    .map((p) => `        ${p.javaType} ${p.id}`)
+    .join(",\n") +
+  "\n    ";
 function checks(p, value, name = p.id) {
   if (p.type === "FLOAT") return [`requireFinite(${value}, "${name}");`];
   if (components(p))
@@ -92,8 +143,14 @@ export function materialJava({ config, transform: t, layout, textures }) {
   const index = local("wf_index"),
     item = local("wf_instance");
   const fields = [
-    ...shared.map((p) => `    private ${javaTypes[p.type]} shared_${p.id};`),
-    ...textures.map((p) => `    private final SpriteAPI texture_${p.id};`),
+    ...shared.map(
+      (p) =>
+        `    /** 整批共用参数 ${p.id}，对应 ${p.name}。 */\n    private ${javaTypes[p.type]} shared_${p.id};`,
+    ),
+    ...textures.map(
+      (p) =>
+        `    /** 整批共用纹理 ${p.id}，对应 ${p.name}。 */\n    private final SpriteAPI texture_${p.id};`,
+    ),
   ];
   const validations = [
     "requirePositions(positions);",
@@ -118,7 +175,7 @@ export function materialJava({ config, transform: t, layout, textures }) {
       const handle = p.id === "wf_instance" ? "wf_instance_" : "wf_instance";
       const check = checks(p, p.id);
       if (p.scope === "shared")
-        return `    /** 更新整批共用的 ${p.id} 参数，向量会复制保存。 */\n    public void set_${p.id}(${javaTypes[p.type]} ${p.id}) {\n${indent([...check, `shared_${p.id} = ${components(p) ? `new ${javaTypes[p.type]}(${p.id})` : p.id};`])}\n    }`;
+        return `    /** 更新整批共用的 ${p.id} 参数，对应 ${p.name}。${components(p) ? "向量会复制保存。" : ""} */\n    public void set_${p.id}(${javaTypes[p.type]} ${p.id}) {\n${indent([...check, `shared_${p.id} = ${components(p) ? `new ${javaTypes[p.type]}(${p.id})` : p.id};`])}\n    }`;
       const writes = Array.from({ length: components(p) || 1 }, (_, i) => {
         const value = components(p)
           ? `${p.id}.${"xyzw"[i]}`
@@ -127,7 +184,7 @@ export function materialJava({ config, transform: t, layout, textures }) {
             : p.id;
         return `${["BOOL", "INT", "UINT"].includes(p.type) ? "putInt" : "putFloat"}(${handle}, ${p.slot * 16 + i * 4}, ${value});`;
       });
-      return `    /** 更新指定实例的 ${p.id} 参数。 */\n    public void set_${p.id}(Instance ${handle}, ${javaTypes[p.type]} ${p.id}) {\n${indent([...check, ...writes])}\n    }`;
+      return `    /** 更新指定实例的 ${p.id} 参数，对应 ${p.name}，句柄可通过 instance(index) 获取。 */\n    public void set_${p.id}(Instance ${handle}, ${javaTypes[p.type]} ${p.id}) {\n${indent([...check, ...writes])}\n    }`;
     })
     .join("\n\n");
   const uploads = shared.map((p) => {
@@ -143,30 +200,51 @@ export function materialJava({ config, transform: t, layout, textures }) {
             ? `GL20.glUniform1f(${loc}, ${v});`
             : `GL20.glUniform${components(p)}f(${loc}, ${[..."xyzw".slice(0, components(p))].map((c) => `${v}.${c}`).join(", ")});`;
   });
+  const imports = [
+    "com.fs.starfarer.api.combat.CombatEngineLayers",
+    ...(textures.length ? ["com.fs.starfarer.api.graphics.SpriteAPI"] : []),
+    `${runtimePackage(config.runtimePath)}.WorkflowRuntime`,
+    "java.util.List",
+    ...(shared.some((p) => p.type !== "UINT") ? ["org.lwjgl.opengl.GL20"] : []),
+    ...(shared.some((p) => p.type === "UINT") ? ["org.lwjgl.opengl.GL30"] : []),
+    ...[
+      ...new Set([
+        "Vector2f",
+        ...layout.filter(components).map((p) => javaTypes[p.type]),
+      ]),
+    ].map((type) => `org.lwjgl.util.vector.${type}`),
+  ];
   return `package data.scripts;
 
-import com.fs.starfarer.api.combat.CombatEngineLayers;
-import com.fs.starfarer.api.graphics.SpriteAPI;
-import ${runtimePackage(config.runtimePath)}.WorkflowRuntime;
-import java.util.List;
-import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
-import org.lwjgl.util.vector.*;
+${imports.map((name) => `import ${name};`).join("\n")}
 
-/** 每个 Vector2f 创建一个实例，复用依赖：${runtimePackage(config.runtimePath)}.WorkflowRuntime。 */
+/**
+ * 工作流生成的特效，每个 Vector2f 创建一个实例。
+ * 通过 engine.addLayeredRenderingPlugin(effect) 注册一次。
+ * 跟随舰船时更新 effect.instance(0).setPosition(ship.getLocation())。
+ * 调用 effect.markExpired() 结束整批特效。
+ *
+ * <p>复用依赖为 ${runtimePackage(config.runtimePath)}.WorkflowRuntime。
+ */
 public final class ${C} extends WorkflowRuntime {
 ${fields.join("\n")}
+    /** 构造时创建的实例句柄，顺序与坐标列表一致。 */
     private final Instance[] configuredInstances;
 
-    /** 批量入口：坐标使用世界坐标，每实例参数数组与坐标列表按下标对应。 */
-    public ${C}(${signature(layout, textures)}) {
-        super(layer, "${config.shaderDir}/${C}.vert", "${config.shaderDir}/${C}.frag",
-            new float[]{${t.vertices
-              .flat()
-              .map((n) => javaNumber(n) + "f")
-              .join(
-                ", ",
-              )}}, ${slots * 16}, ${textures.length}, ${config.blendMode === "additive"});
+${constructorComment(layout, textures, false)}
+    public ${C}(${constructorSignature(layout, textures)}) {
+        super(
+            layer,
+            "${config.shaderDir}/${C}.vert",
+            "${config.shaderDir}/${C}.frag",
+            // 工作流几何面板中的四个局部顶点，按三角形带排列。
+            new float[] {
+${t.vertices.map((point) => "                " + point.map((n) => javaNumber(n) + "f").join(", ")).join(",\n")}
+            },
+            ${slots * 16}, // 每实例节点参数的字节数，按 16 字节对齐。
+            ${textures.length}, // 本批次使用的纹理数量。
+            ${config.blendMode === "additive"} // 是否使用叠加混合。
+        );
         requireApiVersion(${runtimeDependency.api});
 ${indent(validations)}
 ${indent([...shared.map((p) => `set_${p.id}(${p.id});`), ...textures.map((p) => `texture_${p.id} = ${p.id};`)])}
@@ -181,28 +259,44 @@ ${indent(
         }
     }
 
-    /** 单点入口：直接传入中心坐标及各参数，无需包装坐标或参数数组。 */
-    public ${C}(${signature(layout, textures, true)}) {
-        this(${["layer", "java.util.Collections.singletonList(position)", ...parameters.map((p) => (p.scope === "instance" ? `new ${javaTypes[p.type]}[]{${p.id}}` : p.id))].join(", ")});
+${constructorComment(layout, textures, true)}
+    public ${C}(${constructorSignature(layout, textures, true)}) {
+        this(
+${["layer", "java.util.Collections.singletonList(position)", ...parameters.map((p) => (p.scope === "instance" ? `new ${javaTypes[p.type]}[] { ${p.id} }` : p.id))].map((arg) => "            " + arg).join(",\n")}
+        );
     }
 
     /** 返回稳定的实例句柄，index 对应构造时的坐标顺序，单点入口使用 0。 */
     public Instance instance(int index) {
-        if (isExpired()) throw new IllegalStateException("Effect has expired");
+        if (isExpired()) {
+            throw new IllegalStateException("Effect has expired");
+        }
         return configuredInstances[index];
     }
 
-    @Override protected void releaseInstanceReferences() {
-        if (configuredInstances != null) java.util.Arrays.fill(configuredInstances, null);
+    /** 整批特效结束时由公共运行时调用，释放构造时保存的句柄。 */
+    @Override
+    protected void releaseInstanceReferences() {
+        if (configuredInstances != null) {
+            java.util.Arrays.fill(configuredInstances, null);
+        }
     }
 
 ${setters}
 
-    @Override protected void bindSharedParameters() {
-${indent([...uploads, ...textures.map((p, i) => `bindTexture("${p.name}", ${i}, texture_${p.id});`)])}
+    /** 每次绘制前由公共运行时调用，绑定整批共用参数与纹理。 */
+    @Override
+    protected void bindSharedParameters() {
+${indent([
+  ...uploads,
+  ...textures.map((p, i) => `bindTexture("${p.name}", ${i}, texture_${p.id});`),
+  ...(!uploads.length && !textures.length
+    ? ["// 当前工作流的颜色等数值直接写在着色器中，无需上传共用参数。"]
+    : []),
+])}
     }
 }
-`;
+`.replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, "\n\n");
 }
 function exampleValue(p) {
   const value = p.defaultValue;

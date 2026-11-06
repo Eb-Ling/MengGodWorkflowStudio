@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test build/compiler.test.mjs build/desktop.test.mjs build/editor-core.test.mjs build/ui-registry.test.mjs build/kernel-plugin.test.mjs build/p2.test.mjs build/noise-contract.test.mjs build/noise-integration.test.mjs build/p4-contract.test.mjs build/p4-integration.test.mjs build/plugin-registration.test.mjs build/export-plugin.test.mjs build/shader-module.test.mjs build/preview-tools.test.mjs build/p5-ui.test.mjs build/node-correspondence.test.mjs build/project-ui.test.mjs build/p53.test.mjs build/p6.test.mjs build/declarative.test.mjs build/declaration-layout.test.mjs build/drawing.test.mjs build/extension-platform.test.mjs build/plugin-center.test.mjs build/plugin-testkit.test.mjs build/shortcuts-ids.test.mjs build/p7.test.mjs build/workflow-service.test.mjs build/preview-service.test.mjs build/plugin-runtime.test.mjs build/layering.test.mjs build/access-control.test.mjs build/p9-contract.test.mjs build/p11-separation.test.mjs build/p12-dependencies.test.mjs build/p13-runtime-cache.test.mjs build/p13-compiler.test.mjs build/p13-preview-cache.test.mjs build/p14-extension.test.mjs",
+    "test": "node --experimental-strip-types --test build/compiler.test.mjs build/desktop.test.mjs build/editor-core.test.mjs build/ui-registry.test.mjs build/kernel-plugin.test.mjs build/p2.test.mjs build/noise-contract.test.mjs build/noise-integration.test.mjs build/p4-contract.test.mjs build/p4-integration.test.mjs build/plugin-registration.test.mjs build/export-plugin.test.mjs build/shader-module.test.mjs build/preview-tools.test.mjs build/p5-ui.test.mjs build/node-correspondence.test.mjs build/project-ui.test.mjs build/p53.test.mjs build/p6.test.mjs build/declarative.test.mjs build/declaration-layout.test.mjs build/drawing.test.mjs build/extension-platform.test.mjs build/plugin-center.test.mjs build/plugin-testkit.test.mjs build/shortcuts-ids.test.mjs build/p7.test.mjs build/workflow-service.test.mjs build/preview-service.test.mjs build/plugin-runtime.test.mjs build/layering.test.mjs build/access-control.test.mjs build/p9-contract.test.mjs build/p11-separation.test.mjs build/p12-dependencies.test.mjs build/p13-runtime-cache.test.mjs build/p13-compiler.test.mjs build/p13-preview-cache.test.mjs build/p14-extension.test.mjs build/custom-component.test.mjs",
     "test:user": "node build/user-path-regression.mjs",
     "dev": "vite",
     "build": "node build/build-ui.mjs",
@@ -46,6 +46,7 @@
     "@workflow-plugin/mcp": "workspace:*",
     "@workflow-plugin/example-layout": "workspace:*",
     "@workflow-plugin/example-showcase": "workspace:*",
+    "@workflow-plugin/custom-nodes": "workspace:*",
     "@workflow-plugin/noise": "workspace:*",
     "@workflow-plugin/math": "workspace:*",
     "@workflow-plugin/sdf": "workspace:*",

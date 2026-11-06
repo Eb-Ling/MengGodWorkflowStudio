@@ -21,13 +21,24 @@ function createProfileStorage(file) {
   if (!values || typeof values !== "object" || Array.isArray(values))
     throw new Error("工作流存储格式无效");
   for (const [key, value] of Object.entries(values)) valid(key, value);
+  let serial = 1;
+  const versions = new Map(Object.keys(values).map(key => [key, serial]));
   function commit(next) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file + ".tmp", JSON.stringify(next));
     fs.renameSync(file + ".tmp", file);
+    for (const key of new Set([...Object.keys(values), ...Object.keys(next)])) {
+      if (next[key] === values[key]) continue;
+      if (Object.hasOwn(next, key)) versions.set(key, ++serial);
+      else versions.delete(key);
+    }
     values = next;
   }
   return {
+    getVersion(keys) {
+      if (!Array.isArray(keys) || keys.length > 32) throw Error("无效存储键列表");
+      return keys.map(key => { valid(key, ""); return versions.get(key) || 0; }).join(":");
+    },
     getItem(key) {
       valid(key, "");
       return values[key] ?? null;

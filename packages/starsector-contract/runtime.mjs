@@ -1,7 +1,7 @@
 import { validJavaIdentifier } from "./parameters.mjs";
 export const runtimeDependency = {
   api: 3,
-  revision: "3",
+  revision: "4",
   className: "WorkflowRuntime",
   defaultPath: "data/method",
 };

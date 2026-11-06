@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, watch, ref, onBeforeUnmount } from "vue";
 import WorkflowStorage from "./WorkflowStorage.vue";
+import { readProjectForm } from "./session.mjs";
 const props = defineProps<{ session: any; visible?: boolean }>(),
   s = props.session,
   { UiInput, UiSelect, UiButton, UiField } = s.ui.components;
@@ -13,6 +14,8 @@ const form = reactive({
     previewHeight: "1024",
   }),
   error = ref(""),
+  saving = ref(false),
+  saved = ref(false),
   guide = ref("");
 let generation = 0,
   source: any;
@@ -31,7 +34,10 @@ function load() {
     previewHeight: String(p.previewHeight || 1024),
   });
   error.value = "";
+  saved.value = false;
 }
+watch(form, () => { saved.value = false; }, { flush: "sync" });
+watch(() => s.snapshot.value.documentRevision, () => { saved.value = false; }, { flush: "sync" });
 watch(
   [() => props.visible, () => s.snapshot.value.documentToken],
   () => {
@@ -61,29 +67,35 @@ watch(
   { immediate: true },
 );
 async function save(create = false) {
+  if (saving.value) return;
+  saved.value = false;
+  saving.value = true;
+  const submitted = JSON.stringify(form);
+  const documentToken = source.documentToken;
   try {
-    await s.action(
+    const config = readProjectForm(form);
+    const result = await s.action(
       create ? "NEW_WORKFLOW" : "SAVE_WORKFLOW",
       create
-        ? { ...form, id: "workflow_" + crypto.randomUUID() }
-        : { config: { ...form, id: source.project.id } },
+        ? { ...config, id: "workflow_" + crypto.randomUUID() }
+        : { config: { ...config, id: source.project.id } },
       source,
     );
+    if (!create && (s.snapshot.value.documentToken !== documentToken || JSON.stringify(form) !== submitted)) return;
     load();
+    saved.value = !create && result.result?.saved === true && !result.result.dirty && !result.result.cancelled;
     error.value = "";
   } catch (e: any) {
     error.value = e.message;
     s.report(e.message);
+  } finally {
+    saving.value = false;
   }
 }
 async function prepareFileSave() {
   await s.action(
     "SET_PROJECT_CONFIG",
-    {
-      ...form,
-      previewWidth: Number(form.previewWidth),
-      previewHeight: Number(form.previewHeight),
-    },
+    readProjectForm(form),
     source,
   );
   load();
@@ -131,8 +143,11 @@ async function prepareFileSave() {
   >
   <p v-if="error" role="alert" class="ui-field-error">{{ error }}</p>
   <div class="dialog-actions">
-    <UiButton id="create-workflow" @click="save(true)">新建并打开</UiButton
-    ><UiButton id="save-current-workflow" @click="save()">保存当前</UiButton>
+    <UiButton id="create-workflow" :disabled="saving" @click="save(true)">新建并打开</UiButton>
+    <span class="save-current-action">
+      <UiButton id="save-current-workflow" :disabled="saving" @click="save()">{{ saving ? "保存中…" : "保存当前" }}</UiButton>
+      <span v-if="saved" id="workflow-save-confirmation" class="save-confirmation" role="status" aria-live="polite">已保存</span>
+    </span>
   </div>
   <details class="constructor-contract">
     <summary>Plugin 构造参数（随输入节点变化）</summary>
@@ -144,3 +159,15 @@ async function prepareFileSave() {
     :prepare-save="prepareFileSave"
   />
 </template>
+<style scoped>
+.save-current-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.save-confirmation {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+</style>

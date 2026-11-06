@@ -8,13 +8,14 @@ const props = defineProps<{
     exporter: any;
     preview: any;
   }>(),
-  { UiDialog, UiButton, UiInput, UiCheckbox } = props.ui.components;
+  { UiDialog, UiButton, UiInput, UiCheckbox, UiToggle } = props.ui.components;
 const visible = ref(false),
   canvas = ref<HTMLCanvasElement>(),
   state = reactive({
     count: 8,
     selected: 1,
     time: 0,
+    playing: false,
     overrides: {} as Record<string, string>,
     values: {} as Record<string, string>,
     ids: {} as Record<string, string>,
@@ -38,6 +39,24 @@ const snapshot = computed(() => props.snapshot.value),
       geometry: s.vertexTransform,
     };
   };
+let stopClock: (() => void) | undefined;
+watch(visible, (open) => {
+  stopClock?.();
+  stopClock = open ? props.preview.subscribePlayback((clock: { time: number; playing: boolean }) => {
+  state.time = clock.time;
+  state.playing = clock.playing;
+  }) : undefined;
+});
+const selectionStyle = computed(() => {
+  const cols = Math.ceil(Math.sqrt(state.count * 840 / 300));
+  const rows = Math.ceil(state.count / cols);
+  const w = Math.floor(840 / cols), h = Math.floor(300 / rows), i = state.selected - 1;
+  return {
+    left: ((i % cols) * w / 840 * 100) + "%",
+    top: ((300 - (Math.floor(i / cols) + 1) * h) / 300 * 100) + "%",
+    width: (w / 840 * 100) + "%", height: (h / 300 * 100) + "%",
+  };
+});
 const guard = () => {
   const s = props.workflow.snapshot();
   return {
@@ -104,12 +123,10 @@ async function render() {
   if (!canvas.value || turn !== generation || !live) return;
   try {
     view ||= props.preview.mount(canvas.value);
-    const result = await view.render({
-      document: doc,
+    await view.render({
       stage: snapshot.value.stage,
       width: 840,
       height: 300,
-      time: state.time,
       geometry: {
         count: state.count,
         selected: state.selected,
@@ -117,22 +134,6 @@ async function render() {
       },
     });
     if (turn !== generation || !live) return;
-    if (result.presented) {
-      const cols = Math.ceil(Math.sqrt((state.count * 840) / 300)),
-        rows = Math.ceil(state.count / cols),
-        w = Math.floor(840 / cols),
-        h = Math.floor(300 / rows),
-        i = state.selected - 1,
-        ctx = canvas.value.getContext("2d")!;
-      ctx.strokeStyle = "#5ca8ff";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(
-        (i % cols) * w + 2,
-        300 - (Math.floor(i / cols) + 1) * h + 2,
-        w - 4,
-        h - 4,
-      );
-    }
     state.status =
       "同一顶点与片段图的 WebGL2 预览，导出后由 Plugin 自动创建实例并使用 SSBO 绘制。";
   } catch (e: any) {
@@ -181,12 +182,14 @@ function previewNumber(key: "count" | "selected" | "time", event: Event) {
     state.status = "预览参数必须为有限数";
     return;
   }
+  if (key === "time") {
+    props.preview.setPlayback({ time: input.valueAsNumber, playing: false });
+    return;
+  }
   state[key] =
     key === "count"
       ? Math.max(1, Math.min(64, Math.trunc(input.valueAsNumber)))
-      : key === "selected"
-        ? Math.max(1, Math.min(state.count, Math.trunc(input.valueAsNumber)))
-        : input.valueAsNumber;
+      : Math.max(1, Math.min(state.count, Math.trunc(input.valueAsNumber)));
   state.selected = Math.min(state.count, state.selected);
   input.value = String(state[key]);
   void render();
@@ -197,12 +200,13 @@ function close() {
   configurationGeneration++;
   view?.dispose();
   view = null;
+  Object.assign(state, { values: {}, ids: {}, overrides: {}, invalid: {}, parameters: [], fields: [], signature: "", example: "" });
 }
 watch(
-  () => [
-    snapshot.value.documentRevision,
-    snapshot.value.documentToken,
-    snapshot.value.stage,
+  [
+    () => snapshot.value.documentRevision,
+    () => snapshot.value.documentToken,
+    () => snapshot.value.stage,
   ],
   (next, old) => {
     if (next[1] !== old?.[1] || next[2] !== old?.[2]) close();
@@ -219,6 +223,7 @@ onBeforeUnmount(() => {
   live = false;
   close();
   stop();
+  stopClock?.();
 });
 async function hd(event: MouseEvent) {
   event.preventDefault();
@@ -226,7 +231,6 @@ async function hd(event: MouseEvent) {
     await view?.open({
       width: 840,
       height: 300,
-      time: state.time,
       geometry: {
         count: state.count,
         selected: state.selected,
@@ -302,12 +306,14 @@ async function hd(event: MouseEvent) {
           :id="p.id"
           type="number"
           step="any"
-          :model-value="String(state[p.key as 'count' | 'selected' | 'time'])"
+          :model-value="p.key === 'time' ? String(Number(state.time.toFixed(2))) : String(state[p.key as 'count' | 'selected'])"
+          :readonly="p.key === 'time' && state.playing"
           :aria-label="p.label"
           @change="
             previewNumber(p.key as 'count' | 'selected' | 'time', $event)
           "
-        />
+        /><UiToggle v-if="p.key === 'time'" :model-value="state.playing"
+          @update:model-value="preview.setPlayback({ playing: $event })" title="在放大预览中观看动画">{{ state.playing ? "暂停时钟" : "播放时钟" }}</UiToggle>
       </div>
       <div v-for="p in state.parameters" :key="p.name" class="geometry-field">
         <label :for="'preview-param-' + p.name">{{ p.id }}（节点预览值）</label
@@ -344,8 +350,16 @@ async function hd(event: MouseEvent) {
         </p>
       </section>
     </div>
-    <canvas ref="canvas" width="840" height="300" @contextmenu="hd" /><output>{{
+    <div class="geometry-preview-surface" @contextmenu="hd">
+      <canvas ref="canvas" width="840" height="300" />
+      <span aria-hidden="true" :style="selectionStyle" />
+    </div><output>{{
       state.status
     }}</output></UiDialog
   >
 </template>
+<style scoped>
+.geometry-preview-surface { position: relative; margin-top: 16px; }
+.geometry-preview-surface canvas { margin-top: 0; }
+.geometry-preview-surface span { position: absolute; box-sizing: border-box; border: 2px solid #5ca8ff; pointer-events: none; }
+</style>

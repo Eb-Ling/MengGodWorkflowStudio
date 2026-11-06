@@ -24,9 +24,6 @@ export const nodeModelManifest = {
     "workflow.node-catalog": local({
       list: "nodes.read",
       subscribe: "nodes.read",
-      customNodes: "nodes.read",
-      setCustom: "nodes.configure",
-      removeCustom: "nodes.configure",
     }),
     "workflow.graph-snapshot": local({
       identity: "graph.snapshot",

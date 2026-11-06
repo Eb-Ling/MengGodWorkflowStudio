@@ -32,6 +32,17 @@ test('desktop projects survive changed HTTP origins without a browser migration 
   try {
     const file=path.join(directory,'workflow-storage.json');
     const first=createProfileStorage(file);
+    const transient = "workflow.example.setting", keys = [transient];
+    const absent = first.getVersion(keys);
+    first.setItem(transient, "one");
+    const old = first.getVersion(keys);
+    const reopened = createProfileStorage(file), fromDisk = reopened.getVersion(keys);
+    reopened.removeItem(transient);
+    assert.notEqual(reopened.getVersion(keys), fromDisk);
+    first.removeItem(transient);
+    assert.equal(first.getVersion(keys), absent);
+    first.setItem(transient, "two");
+    assert.notEqual(first.getVersion(keys), old);
     first.setItem('workflow.library','saved project');
     assert.throws(()=>first.setItems({'workflow.documents':'new','invalid':'no'}));
     assert.equal(first.getItem('workflow.documents'),null,'失败批次不得部分写入');

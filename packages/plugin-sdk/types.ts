@@ -236,6 +236,8 @@ export interface WorkflowApi {
   report(message:string): void;
   /** 通知编辑器发生用户交互，不提交文档。 */
   activity(): void;
+  /** 只读当前文档、阶段和节点目录的修订标记，不复制节点或连线。 */
+  revision(): Pick<WorkflowSnapshot, "documentToken" | "documentRevision" | "stage" | "catalogRevision">;
   /** 取得独立 JSON 快照，修改快照不会改变工作流。 */
   snapshot(): WorkflowSnapshot;
   /** 提交图命令、文档事务或文档内动作，保存、模板及导出动作使用 WorkspaceApi。拒绝时返回 ok=false/error。 */
@@ -310,6 +312,8 @@ export interface NodeDefinition {
   inputs: PortDefinition[];
   outputs: PortDefinition[];
   properties: Record<string, JsonValue>;
+  /** 声明式 GLSL 函数，可替代逐目标的 IR 回调，端口必须与参数方向及类型一致。 */
+  glsl?: { name: string; parameters: { id?: string; name: string; type: string; qualifier: "in" | "out" | "inout" }[]; code: string; helpers?: string };
   propertySchema?: JsonSchema;
   stages?: Stage[];
   targets?: string[];
@@ -336,16 +340,18 @@ export interface CompilerRule {
     connectedInputs?: string[];
   }): TypedExpression | Promise<TypedExpression>;
 }
+export interface NodeContribution { nodes: NodeDefinition[]; compilers: CompilerRule[] }
+export interface NodeRegistration extends Registration {
+  /** 原子替换此句柄拥有的组件，失败时保留旧定义，释放后的句柄不能再次使用。 */
+  replace(batch: NodeContribution): void;
+}
 export interface NodeApi {
   /** 返回节点定义副本，包含注册所有者与版本。 */
   list(): (NodeDefinition & { owner: string; version: string })[];
   /** 查找节点定义副本，不存在或提供者停用时返回 null。 */
   get(typeId: string): NodeDefinition | null;
   /** 节点及每个目标的编译规则原子注册，ID 必须位于本插件命名空间。 */
-  register(contribution: {
-    nodes: NodeDefinition[];
-    compilers: CompilerRule[];
-  }): Registration;
+  register(contribution: NodeContribution): NodeRegistration;
 }
 /** 本地节点目录，独立于编辑会话，算法插件使用 NodeApi 注册即可。 */
 export interface NodeCatalogApi {
@@ -353,10 +359,7 @@ export interface NodeCatalogApi {
   list(): NodeDefinition[];
   /** 目录变化后重新读取，消费者停用时自动取消。 */
   subscribe(listener: () => void): () => void;
-  customNodes(): NodeDefinition[];
-  /** 以下配置方法只允许工作流编辑提供者使用，第三方请注册自己的节点。 */
-  setCustom(definition: NodeDefinition): void;
-  removeCustom(typeId: string): void;
+
 }
 export interface UiScope extends Disposable {
   /** 注册本作用域内的受信任 Vue 组件，ID 必须含所有者命名空间。 */

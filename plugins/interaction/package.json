@@ -8,6 +8,7 @@
     "./manifest": "./manifest.mjs"
   },
   "dependencies": {
+    "@workflow/plugin-sdk": "workspace:*",
     "@workflow/tools-contract": "workspace:*"
   }
 }

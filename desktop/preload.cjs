@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld("workflowDesktop", {
     },
   },
   storage: {
+    getVersion: (keys) => storageCall("getVersion", keys),
     getItem: (key) => storageCall("getItem", key),
     setItem: (key, value) => storageCall("setItem", key, value),
     setItems: (items) => storageCall("setItems", items),

@@ -5,6 +5,7 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
   const draft = reactive({
     positions: {} as Record<string, { x: number; y: number }>,
     view: null as any,
+    navigating: false,
     pending: null as any,
     box: null as any,
   });
@@ -22,7 +23,10 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
   };
 
   function capture(event: PointerEvent) {
+    const pendingView = wheelTimer ? { ...view.value } : null;
+    flushWheel();
     cancel();
+    if (pendingView) draft.view = pendingView;
     pointer = event.pointerId;
     root.value?.focus({ preventScroll: true });
     root.value?.setPointerCapture(event.pointerId);
@@ -59,7 +63,7 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      source: s.workflow.snapshot(),
+      source: s.snapshot.value,
       nodes: s.snapshot.value.graph.nodes.filter((n: any) =>
         ids.includes(n.id),
       ),
@@ -101,7 +105,7 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
     gesture = {
       kind: "wire",
       pointerId: event.pointerId,
-      source: s.workflow.snapshot(),
+      source: s.snapshot.value,
     };
     void measure();
   }
@@ -118,7 +122,7 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
     if (event.shiftKey && event.button === 0) {
       gesture = {
         kind: "box",
-        source: s.workflow.snapshot(),
+        source: s.snapshot.value,
         pointerId: event.pointerId,
         start: world(event.clientX, event.clientY),
       };
@@ -127,7 +131,7 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
     }
     gesture = {
       kind: "pan",
-      source: s.workflow.snapshot(),
+      source: s.snapshot.value,
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
@@ -135,7 +139,20 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
       moved: false,
     };
   }
+  // 高频指针事件只保留最新位置。松开时先结算最后一笔位移。
+  let moveFrame = 0, pendingMove: PointerEvent | null = null;
   function move(event: PointerEvent) {
+    if (gesture?.pointerId !== event.pointerId) return;
+    pendingMove = event;
+    if (!moveFrame) moveFrame = requestAnimationFrame(flushMove);
+  }
+  function flushMove() {
+    cancelAnimationFrame(moveFrame);
+    moveFrame = 0;
+    if (pendingMove) applyMove(pendingMove);
+    pendingMove = null;
+  }
+  function applyMove(event: PointerEvent) {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const dx = event.clientX - gesture.x,
       dy = event.clientY - gesture.y;
@@ -152,7 +169,8 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
         ]),
       );
     } else if (gesture.kind === "pan") {
-      gesture.moved = Math.hypot(dx, dy) >= 4;
+      gesture.moved ||= Math.hypot(dx, dy) >= 4;
+      draft.navigating = gesture.moved;
       draft.view = {
         ...gesture.start,
         x: gesture.start.x + dx,
@@ -173,10 +191,11 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
         cursor: world(event.clientX, event.clientY),
       };
     }
-    void measure();
   }
   async function up(event: PointerEvent) {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (pendingMove || gesture.kind === "pan" || gesture.kind === "nodes") pendingMove = event;
+    flushMove();
     const current = gesture,
       turn = generation;
     gesture = null;
@@ -263,31 +282,52 @@ export function createGraphGestures(s: any, root: any, measure: () => void) {
   }
   function cancel() {
     generation++;
+    cancelAnimationFrame(moveFrame);
+    moveFrame = 0;
+    pendingMove = null;
+    clearTimeout(wheelTimer);
+    wheelTimer = undefined;
     gesture = null;
     if (pointer !== null && root.value?.hasPointerCapture(pointer))
       root.value.releasePointerCapture(pointer);
     pointer = null;
-    draft.positions = {};
+    if (Object.keys(draft.positions).length) draft.positions = {};
     draft.view = null;
+    draft.navigating = false;
+    wheelSource = null;
     draft.box = null;
     draft.pending = null;
-    void measure();
+  }
+  let wheelTimer: ReturnType<typeof setTimeout> | undefined;
+  let wheelSource: any;
+  function flushWheel() {
+    if (!wheelTimer) return;
+    clearTimeout(wheelTimer);
+    wheelTimer = undefined;
+    const turn = generation, value = draft.view, source = wheelSource;
+    wheelSource = null;
+    void s.run(() => s.action("SET_VIEW", { ...value }, source)).finally(() => {
+      if (turn === generation && draft.view === value) { draft.view = null; draft.navigating = false; }
+    });
   }
   function wheel(event: WheelEvent) {
     event.preventDefault();
-    const before = world(event.clientX, event.clientY),
-      b = root.value!.getBoundingClientRect(),
+    if (gesture) return;
+    draft.navigating = true;
+    if (!wheelTimer) wheelSource = s.snapshot.value;
+    const b = root.value!.getBoundingClientRect(),
+      before = { x: (event.clientX - b.left - view.value.x) / view.value.zoom, y: (event.clientY - b.top - view.value.y) / view.value.zoom },
       zoom = Math.max(
         0.35,
         Math.min(1.8, view.value.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12)),
       );
-    void s.run(() =>
-      s.action("SET_VIEW", {
+    draft.view = {
         x: event.clientX - b.left - before.x * zoom,
         y: event.clientY - b.top - before.y * zoom,
         zoom,
-      }),
-    );
+    };
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(flushWheel, 120);
   }
 
   watch(

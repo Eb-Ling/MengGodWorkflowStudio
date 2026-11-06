@@ -22,7 +22,9 @@ export function createEditorClient({
     pulling = false,
     pendingPublish = false,
     publishing = null,
-    lastClaim = 0;
+    lastClaim = 0,
+    hasState = false,
+    dirty = true;
   async function request(route, input) {
     const response = await platform.fetch(base + route, {
       signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]),
@@ -46,16 +48,19 @@ export function createEditorClient({
     publishing = (async () => {
       while (pendingPublish && !disposed) {
         pendingPublish = false;
+        if (!dirty && hasState) continue;
+        dirty = false;
         const result = await request("/v1/state", {
           ...workflow.snapshot(),
           ...identity,
         });
+        hasState = true;
         if (!result.activeEditorId && !disposed) {
           await request("/v1/activate", identity);
           status("工作区已自动连接，AI 可按名称或 ID 选择工作流。");
         }
       }
-    })().finally(() => {
+    })().catch(error => { dirty = true; throw error; }).finally(() => {
       publishing = null;
     });
     return publishing;
@@ -68,9 +73,16 @@ export function createEditorClient({
     await request("/v1/activate", identity);
     if (!disposed) status("工作区已自动连接，AI 可按名称或 ID 选择工作流。");
   }
+  let publishScheduled = false;
   const backgroundPublish = () => {
-    publish().catch((error) => {
+    dirty = true;
+    if (publishScheduled) return;
+    publishScheduled = true;
+    queueMicrotask(() => {
+      publishScheduled = false;
+      publish().catch((error) => {
       if (!disposed) status("连接失败：" + error.message);
+      });
     });
   };
   async function pull() {
@@ -80,6 +92,8 @@ export function createEditorClient({
       const result = await request(
         "/v1/commands?" + new URLSearchParams(identity),
       );
+      if (result.needsState) { dirty = true; await publish(); }
+      else if (dirty) await publish();
       for (const item of result.requests || []) {
         if (disposed) break;
         let outcome;
@@ -195,8 +209,7 @@ export function createEditorClient({
       if (!disposed) status("连接失败：" + error.message);
     }),
   );
-  const pollTimer = setInterval(pull, 250),
-    publishTimer = setInterval(backgroundPublish, 2000);
+  const pollTimer = setInterval(pull, 250);
   activate().catch((error) => {
     if (!disposed) status("连接失败：" + error.message);
   });
@@ -207,7 +220,6 @@ export function createEditorClient({
       disposed = true;
       abort.abort();
       clearInterval(pollTimer);
-      clearInterval(publishTimer);
       unsubscribe();
       activity();
       try {

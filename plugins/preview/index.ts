@@ -47,11 +47,11 @@ export const previewPlugin = {
       visible: false,
       busy: false,
       error: "",
-      dataUrl: "",
       width: 0,
       height: 0,
       longEdge: 2048,
       time: 0,
+      playing: false,
       title: "",
       outputs: [],
       socket: "",
@@ -77,6 +77,10 @@ export const previewPlugin = {
         shortcuts,
         model,
         actions: {
+          attachCanvas: controller.attachCanvas,
+          setPageVisible: controller.setPageVisible,
+          setViewport: controller.setViewport,
+          setPlayback: controller.editViewerPlayback,
           close: controller.close,
           refresh: () => {
             void controller.refresh().catch(() => {});

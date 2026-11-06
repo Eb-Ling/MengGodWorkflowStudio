@@ -50,6 +50,9 @@ importers:
       '@workflow-plugin/node-model':
         specifier: workspace:*
         version: link:plugins/node-model
+      '@workflow-plugin/custom-nodes':
+        specifier: workspace:*
+        version: link:plugins/custom-nodes
       '@workflow-plugin/noise':
         specifier: workspace:*
         version: link:plugins/noise
@@ -298,6 +301,9 @@ importers:
 
   plugins/interaction:
     dependencies:
+      '@workflow/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
       '@workflow/tools-contract':
         specifier: workspace:*
         version: link:../../packages/workflow-tools
@@ -352,6 +358,12 @@ importers:
       '@workflow/tools-contract':
         specifier: workspace:*
         version: link:../../packages/workflow-tools
+
+  plugins/custom-nodes:
+    dependencies:
+      '@workflow/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
 
   plugins/noise:
     dependencies:

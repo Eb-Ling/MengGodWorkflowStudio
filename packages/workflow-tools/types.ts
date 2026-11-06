@@ -7,6 +7,7 @@ export interface PreviewRequest {
   socket?: string;
   width?: number;
   height?: number;
+  /** 省略时跟随编辑器播放，传入秒数可固定采样。 */
   time?: number;
   longEdge?: number;
   geometry?: {
@@ -18,12 +19,18 @@ export interface PreviewRequest {
 export interface PreviewFrame {
   width: number;
   height: number;
+  /** 此帧实际使用的 u_time，单位为秒。 */
+  time: number;
   dataUrl: string;
   stage: string;
   nodeId?: string;
   socket?: string;
 }
 export interface PreviewApi {
+  /** 设置共享时间或播放状态。挂载画布静态取样，连续绘制仅发生在可见的高清视框。 */
+  setPlayback(input: { time?: number; playing?: boolean }): PreviewPlayback;
+  /** 立即取得时间状态并订阅后续变化，返回解除订阅的函数。 */
+  subscribePlayback(listener: (state: PreviewPlayback) => void): () => void;
   /** 通过编译 API 读取容量与命中统计，不接触编译插件实现。 */
   compilationStatus(): Promise<Record<string, unknown>>;
   /** 真正重新渲染并返回 PNG，不会打开视框或改动工作流。 */
@@ -39,6 +46,12 @@ export interface PreviewApi {
   /** 挂载调用方自己的画布，不需要登记编号或操作内部渲染端口。 */
   mount(canvas: HTMLCanvasElement, defaults?: PreviewRequest): PreviewView;
   status(request?: Record<string, never>): Record<string, unknown>;
+}
+export interface PreviewPlayback {
+  time: number;
+  playing: boolean;
+  /** 当前工作流的顶点或片段图含有时间节点。 */
+  available: boolean;
 }
 export interface TemplateItem {
   id: string;

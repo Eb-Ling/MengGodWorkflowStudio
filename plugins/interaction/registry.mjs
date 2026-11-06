@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 const kinds = ["selection", "layers", "layout"];
 const freeze = (v) => {
   if (v && typeof v === "object") {
@@ -60,8 +61,7 @@ export function createStrategyRegistry(defaults) {
         register(d) {
           check();
           const h = add(owner, d);
-          own(h.dispose);
-          return h;
+          return { dispose: ownCleanup(own, h.dispose) };
         },
         list() {
           check();
@@ -83,8 +83,7 @@ export function createStrategyRegistry(defaults) {
           check();
           listeners.add(fn);
           const off = () => listeners.delete(fn);
-          own(off);
-          return off;
+          return ownCleanup(own, off);
         },
         evaluate({ kind, input }) {
           check();

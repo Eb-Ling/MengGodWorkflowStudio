@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 import { createPluginControl } from "./plugin-control.mjs";
 import { createLocalTransport } from "./local-transport.mjs";
 import { mcpConnectionPlugin } from "../../plugins/mcp-connection/index";
@@ -11,7 +12,9 @@ import { shortcutsPlugin } from "../../plugins/shortcuts/index";
 import { createPluginSettings } from "./plugin-settings.mjs";
 import { extensionUiPlugin } from "../../plugins/extension-ui/index";
 import { declarationsPlugin } from "../../plugins/declarations/index.mjs";
+import { adoptCustomSettings } from "../project/adopt-custom-components.mjs";
 import { persistentStorage } from "../project/persistent-storage.js";
+import { customNodesPlugin } from "../../plugins/custom-nodes/index.mjs";
 import { noisePlugin } from "../../plugins/noise/index.mjs";
 import { mathPlugin } from "../../plugins/math/index.mjs";
 import { sdfPlugin } from "../../plugins/sdf/index.mjs";
@@ -40,6 +43,7 @@ export async function startStudioPlugins() {
   const host = new PluginRuntime({ enforceLayers: true }),
     localPreferences = persistentStorage(),
     ports = createWorkspacePorts();
+  adoptCustomSettings(localPreferences);
   const invalidate = ports.invalidateNodes;
   host.provide(
     "platform.node-registry",
@@ -52,7 +56,6 @@ export async function startStudioPlugins() {
     true,
     {
       methods: {
-        preferences: { capability: "nodes.host" },
         contributions: { capability: "nodes.host" },
       },
     },
@@ -251,8 +254,7 @@ export async function startStudioPlugins() {
         onClose: (fn: () => void) => {
           window.addEventListener("beforeunload", fn);
           const off = () => window.removeEventListener("beforeunload", fn);
-          own(off);
-          return off;
+          return ownCleanup(own, off);
         },
       };
     },
@@ -335,6 +337,7 @@ export async function startStudioPlugins() {
     geometryUiPlugin,
     projectFilesPlugin,
     projectUiPlugin,
+    customNodesPlugin,
     noisePlugin,
     mathPlugin,
     sdfPlugin,

@@ -91,6 +91,43 @@ export async function previewServiceAcceptance(client) {
   assert.match(files.java.content, /Vector2f position/);
   await s.mutate("workflow_edit", { remove: ["tint"] });
   await mounted(0);
+  await s.mutate("workflow_edit", {
+    add: [{ id: "clock", typeId: "input.time", properties: { defaultValue: "0.25", autoAdvance: false } }],
+  });
+  await s.mutate("workflow_open_preview", { nodeId: "clock", longEdge: 2048 });
+  for (const time of [0.25, 0.75]) {
+    await s.mutate("workflow_set_preview_time", { time, playing: false });
+    const gray = Math.round(255 * time), color = [gray, gray, gray, 255];
+    await s.frame({ nodeId: "clock", width: 112, height: 112 }, color);
+    await s.frame({ nodeId: "clock", longEdge: 2048 }, color);
+    const paused = await status();
+    assert.equal(paused.viewerTime, time);
+    assert.equal(paused.viewerPlaying, false);
+  }
+  await s.mutate("workflow_set_preview_time", { playing: true });
+  let animated = await status();
+  for (let i = 0; i < 20 && animated.viewerTime <= 0.75; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 83));
+    animated = await status();
+  }
+  assert.ok(animated.viewerPlaying && animated.viewerTime > 0.75);
+  await s.mutate("workflow_close_preview");
+  const closed = await status();
+  await new Promise(resolve => setTimeout(resolve, 400));
+  const still = await status();
+  assert.ok(still.mountedFrames > closed.mountedFrames);
+  assert.ok(still.playback.time > closed.playback.time);
+  assert.equal(still.viewerCanvasPixels, 0);
+  assert.equal(still.pending, 0);
+  await s.mutate("workflow_set_preview_time", { playing: false });
+  const baseline = await status();
+  for (let round = 0; round < 5; round++) {
+    await s.mutate("workflow_open_preview", { nodeId: "clock", longEdge: 1024 });
+    await s.mutate("workflow_close_preview");
+    const end = await status();
+    for (const field of ["clockSubscribers","changeSubscribers","mountedViews","programs","textures"])
+      assert.equal(end[field], baseline[field], field);
+  }
   return {
     ...s.report(),
     preview:

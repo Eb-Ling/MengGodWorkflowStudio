@@ -42,6 +42,7 @@ export const previewCalls = Object.freeze({
     ),
   ),
   close: shape({}),
+  setPlayback: shape({ time: { type: "number" }, playing: { type: "boolean" } }),
   status: shape({}),
   compilationStatus: shape({}),
 });

@@ -374,10 +374,12 @@ try {
   );
   await page.screenshot({ path: path.join(out, "geometry-settings.png") });
   await page.getByRole("button", { name: "关闭几何设置" }).click();
-  await page.click("#preview-time-toggle");
-  assert.match(await page.locator("#preview-time-toggle").textContent(), /开/);
-  await page.click("#preview-time-toggle");
-  assert.match(await page.locator("#preview-time-toggle").textContent(), /关/);
+  const playback = page.locator("#preview-time-toggle");
+  const initialPlayback = await playback.getAttribute("aria-checked");
+  await playback.click();
+  assert.notEqual(await playback.getAttribute("aria-checked"), initialPlayback);
+  await playback.click();
+  assert.equal(await playback.getAttribute("aria-checked"), initialPlayback);
   await page.locator('a[data-stage="fragment"]').click();
   const count = await page.locator(".workflow-node").count();
   const invalidFile = path.join(out, "invalid.workflow.json");

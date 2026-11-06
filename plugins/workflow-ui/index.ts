@@ -6,6 +6,7 @@ import { createViewSession } from "./session.mjs";
 import NodeCard from "./NodeCard.vue";
 import PortView from "./PortView.vue";
 import InspectorField from "./InspectorField.vue";
+import TimeValue from "./TimeValue.vue";
 import GraphEditor from "./GraphEditor.vue";
 import Inspector from "./Inspector.vue";
 import NodeCatalog from "./NodeCatalog.vue";
@@ -54,6 +55,10 @@ export const workflowUiPlugin = {
         typeIds: ["*"],
         component,
       });
+    ui.addRenderer({
+      id: context.pluginId + ".time-value", kind: "field",
+      typeIds: ["input.time.defaultValue"], component: TimeValue,
+    });
     for (const [slot, component] of Object.entries({
       graph: GraphEditor,
       catalog: NodeCatalog,

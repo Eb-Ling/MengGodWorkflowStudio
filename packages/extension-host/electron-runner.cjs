@@ -32,6 +32,7 @@ async function createExtensionRunner(
     "schema-definition.mjs",
     "errors.mjs",
     "plugin-activation.mjs",
+    "glsl-node.mjs",
     "ports.mjs",
     "extension-protocol.mjs",
     "drawing.mjs",
@@ -63,6 +64,7 @@ async function createExtensionRunner(
     '<!doctype html><html><head><script type="importmap">' +
     JSON.stringify({
       imports: {
+        "@workflow/plugin-sdk/glsl-node": origin + "/packages/plugin-sdk/glsl-node.mjs",
         "@workflow/plugin-sdk/ir": origin + "/packages/plugin-sdk/ir.mjs",
         "@workflow/plugin-sdk/schema":
           origin + "/packages/plugin-sdk/schema.mjs",

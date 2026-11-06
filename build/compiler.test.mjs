@@ -11,6 +11,11 @@ import {validateParameterIds} from '../packages/starsector-contract/parameters.m
 import {parameterId} from '../packages/workflow-tools/parameters.mjs';
 import {initExample} from '../plugins/starsector/java-material.mjs';
 import {runtimePackage,dependencySource,dependencyExportKey,dependencyExportState} from '../packages/starsector-contract/runtime.mjs';
+
+// 接口检查允许导出器调整缩进和换行，Java 编译检查负责语法验证。
+function includesJava(source, expected) {
+  assert.ok(source.replace(/\s+/g, '').includes(expected.replace(/\s+/g, '')), expected);
+}
 test('current geometry preserves zero scale and rejects retired vertex DAGs',async()=>{
  const t=normalizeTransform({sx:0,vertices:[[10,20],[80,20],[15,90],[70,85]]});assert.equal(t.sx,0);assert.deepEqual(t.vertices[3],[70,85]);
  assert.ok(t.graph.links.length===2);assert.ok(t.graph.nodes.every(n=>n.typeId));
@@ -31,9 +36,9 @@ test('shared compiler compiles both vertex sinks once and rejects cycles / incom
 });
 test('generated constructor contract follows parameter IDs, types, scopes and textures',async()=>{
   const f=await buildRuntimeSources({...base,inputs:[{id:'tint',name:'u_color',type:'VEC4',scope:'instance'},{id:'speed',name:'u_speed',type:'FLOAT',scope:'shared'}],textures:[{id:'sprite',name:'u_texture',parameter:'ignoredOldName'}]});
-  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer, List<Vector2f> positions, Vector4f\[\] tint, float speed, SpriteAPI sprite\)/);
-  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer, Vector2f position, Vector4f tint, float speed, SpriteAPI sprite\)/);
-  assert.match(f.java.content,/this\(layer, java.util.Collections.singletonList\(position\), new Vector4f\[\]\{tint\}, speed, sprite\)/);
+  includesJava(f.java.content, 'TestEffect(CombatEngineLayers layer, List<Vector2f> positions, Vector4f[] tint, float speed, SpriteAPI sprite)');
+  includesJava(f.java.content, 'TestEffect(CombatEngineLayers layer, Vector2f position, Vector4f tint, float speed, SpriteAPI sprite)');
+  includesJava(f.java.content, 'this(layer, java.util.Collections.singletonList(position), new Vector4f[]{tint}, speed, sprite)');
   assert.match(f.vertex.content,/uniform mat4 u_viewProjection/);
   assert.doesNotMatch(f.vertex.content,/BUtilGlobalData|gameViewport/);
   assert.doesNotMatch(f.java.content,/float\[\]\[\]/);
@@ -49,7 +54,7 @@ test('generated constructor contract follows parameter IDs, types, scopes and te
   assert.match(initExample(base.config,[],[]),/public void init\(CombatEngineAPI engine\)/);
   assert.match(initExample(base.config,[],[],1),/new Vector2f\(100f, 100f\)/);
   const removed=await buildRuntimeSources(base);assert.ok(!removed.java.content.includes('InstanceParameters'));
-  assert.match(removed.java.content,/TestEffect\(CombatEngineLayers layer, List<Vector2f> positions\)/);
+  includesJava(removed.java.content, 'TestEffect(CombatEngineLayers layer, List<Vector2f> positions)');
   assert.equal(parameterId({id:'internal-id',properties:{uniform:'u_color',parameterId:'customColor'}}),'customColor');
 });
 test('parameter contract rejects ambiguous IDs, keywords and reserved constructor arguments',async()=>{
@@ -66,7 +71,7 @@ test('geometry switches survive normalization and control the array ABI and vert
   const transform=normalizeTransform({sx:2,instanceInputs:{sx:{enabled:true,id:'widths'},rotation:{enabled:false,id:'angles'},v0x:{enabled:true,id:'leftCorners'}},parameterModes:{u_color:'shared'}});
   assert.deepEqual(normalizeTransform(transform).instanceInputs,transform.instanceInputs);
   const f=await buildRuntimeSources({...base,transform,inputs:[{id:'color',name:'u_color',type:'VEC4',scope:'instance'}]});
-  assert.match(f.java.content,/TestEffect\(CombatEngineLayers layer, List<Vector2f> positions, float\[\] widths, float\[\] leftCorners, Vector4f color\)/);
+  includesJava(f.java.content, 'TestEffect(CombatEngineLayers layer, List<Vector2f> positions, float[] widths, float[] leftCorners, Vector4f color)');
   assert.match(f.vertex.content,/\(wf_geometry_position\)\.x = u_wf_geometry_v0x/);
   assert.match(f.vertex.content,/wf_geometry_position/);
   assert.match(f.vertex.content,/vec2\(u_wf_geometry_sx, 1.0\)/);
@@ -92,4 +97,25 @@ test('dependency upgrades require a new source export for the selected package a
   history[dependencyExportKey('data.method')]=true;
   assert.equal(dependencyExportState('data/method',history),'current');
   assert.equal(dependencyExportState('data/method',null),'missing');
+});
+
+test('导出说明包含参数来源与作用域，节点 ID 无法结束 Java 注释', async () => {
+  const files = await buildRuntimeSources({
+    ...base,
+    inputs: [
+      { id: 'tint', nodeId: '颜色*/<测试>\\u000a', name: 'u_color', type: 'VEC4', scope: 'instance' },
+      { id: 'speed', nodeId: 'animationSpeed', name: 'u_speed', type: 'FLOAT', scope: 'shared' },
+    ],
+  });
+  const java = files.java.content;
+  assert.match(java, /@param tint 节点 颜色\*&#47;&lt;测试&gt;&#92;u000a/);
+  assert.match(java, /@param speed 节点 animationSpeed，工作流参数 speed，uniform 为 u_speed，整批共用的值/);
+  assert.match(java, /按坐标顺序传入的每实例数组/);
+  assert.match(java, /当前实例的值/);
+  assert.match(java, /public TestEffect\(\n        CombatEngineLayers layer,/);
+  assert.match(java, /@Override\n    protected void releaseInstanceReferences/);
+  assert.doesNotMatch(java, /@Override protected|\{[^\n{}]*;[^\n{}]*;/);
+  assert.doesNotMatch(java, /\n[ \t]*\n[ \t]*\n/);
+  const plain = (await buildRuntimeSources(base)).java.content;
+  assert.doesNotMatch(plain, /import org.lwjgl.opengl.GL20|import org.lwjgl.opengl.GL30|import com.fs.starfarer.api.graphics.SpriteAPI/);
 });

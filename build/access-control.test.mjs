@@ -480,6 +480,7 @@ test("只读分类基于实际操作，混合封包、文件写入和预览窗�
     mutation,
     { previewCall: { method: "open", input: {} } },
     { previewCall: { method: "close", input: {} } },
+    { previewCall: { method: "setPlayback", input: { time: 0, playing: false } } },
     { actions: [{ type: "PROJECT_FILE", payload: { operation: "save" } }] },
     { actions: [{ type: "EXPORT_RUNTIME", payload: {} }] },
     { actions: [{ type: "EXPORT_RUNTIME_DEPENDENCY", payload: {} }] },

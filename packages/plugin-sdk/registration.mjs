@@ -15,7 +15,9 @@ export function registration(owner, cleanup) {
     dispose() {
       if (!active) return result;
       active = false;
-      result = cleanup();
+      const release = cleanup;
+      cleanup = undefined;
+      result = release();
       return result;
     },
   });
@@ -35,6 +37,7 @@ export function ownRegistration(own, handle) {
       return handle.dispose();
     } finally {
       if (typeof forget === "function") forget();
+      forget = undefined;
     }
   });
   try {
@@ -44,4 +47,10 @@ export function ownRegistration(own, handle) {
     throw error;
   }
   return owned;
+}
+
+
+/** 本地主动取消订阅时，同时撤销宿主的兜底登记，避免回调一直持有已卸载组件。 */
+export function ownCleanup(own, cleanup) {
+  return ownRegistration(own, { owner: "", dispose: cleanup }).dispose;
 }

@@ -1,5 +1,4 @@
 import { copyJson } from "../../packages/plugin-sdk/schema.mjs";
-import { sourceName } from "../../packages/shader-ir/index.mjs";
 import { normalizeTransform } from "../../packages/workflow-tools/geometry.mjs";
 
 /** 应用适配只解析当前节点声明/端口与调用受检节点 IR，不生成 GLSL，不传私有对象。 */
@@ -150,18 +149,15 @@ export function createGraphSnapshotApi({ semantics, data, registry }) {
           n.typeId === "logic.variable" ? variableBranchOwner(graph, n) : null,
         expressions: {},
       };
-      if (n.typeId.startsWith("custom.")) {
-        const p = d.properties;
+      if (d.glsl) {
         item.custom = {
-          name: p.functionName || sourceName(n.typeId),
-          parameters: (p.parameters || []).map((v) => ({
-            name: v.name,
-            type: typeKey(v.type),
-            qualifier: v.qualifier,
+          ...d.glsl,
+          parameters: d.glsl.parameters.map(({ name, type, qualifier }) => ({
+            name,
+            type,
+            qualifier,
           })),
-          code: p.code || "",
-          helpers: p.helperSource || "",
-          targets: p.sourceTargets || [],
+          targets: d.targets,
         };
       } else if (registry.owner(n.typeId)?.id !== "studio.builtin") {
         for (const output of item.outputs)

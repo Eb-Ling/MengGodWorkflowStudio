@@ -4,12 +4,13 @@ import {
   reactive,
   computed,
   watch,
-  nextTick,
+  watchEffect,
   onMounted,
   onBeforeUnmount,
 } from "vue";
 import { createGraphGestures } from "./gestures";
 import { createGraphKeyboard } from "./keyboard";
+import TimeValue from "./TimeValue.vue";
 import PreviewSurface from "./PreviewSurface.vue";
 const props = defineProps<{ session: any }>(),
   s = props.session,
@@ -39,6 +40,7 @@ const {
   wheel,
   cancel,
 } = createGraphGestures(s, root, measure);
+const selection = computed(() => s.snapshot.value.selection);
 const entries = computed(() => {
     const nodes = s.projection.value.nodes;
     s.model.serial;
@@ -47,7 +49,7 @@ const entries = computed(() => {
         kind: "layers",
         input: {
           nodes: nodes.map((e: any) => e.node),
-          selection: s.snapshot.value.selection,
+          selection: selection.value,
         },
       }).nodeIds;
       const map = new Map(nodes.map((e: any) => [e.node.id, e]));
@@ -57,8 +59,7 @@ const entries = computed(() => {
       layerError.value = "显示顺序策略失败，已使用文档顺序：" + String(error);
       return nodes;
     }
-  }),
-  selection = computed(() => s.snapshot.value.selection);
+  });
 const keyboard = createGraphKeyboard(s, root, menu, selection, world, cancel);
 const position = (node: any) =>
   Object.freeze({
@@ -68,43 +69,46 @@ function path(a: any, b: any) {
   const d = Math.max(56, Math.abs(b.x - a.x) * 0.55);
   return `M ${a.x} ${a.y} C ${a.x + d} ${a.y}, ${b.x - d} ${b.y}, ${b.x} ${b.y}`;
 }
-function center(nodeId: string, direction: string, name: string) {
-  const p = root.value?.querySelector<HTMLElement>(
-    `[data-port-id="${CSS.escape(nodeId + ":" + direction + ":" + name)}"]`,
-  );
-  if (!p) return null;
-  const b = p.getBoundingClientRect();
-  return world(b.x + b.width / 2, b.y + b.height / 2);
-}
-async function measure() {
+// 节点和 SVG 共用世界坐标。平移或缩放只更新这个容器，不触发节点树渲染。
+watchEffect(() => {
+  if (transform.value) {
+    const { x, y, zoom } = view.value;
+    transform.value.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`;
+  }
+}, { flush: "sync" });
+let measureFrame = 0;
+function measure() {
   if (scheduled || !live) return;
   scheduled = true;
-  await nextTick();
-  scheduled = false;
-  if (!live) return;
-  const result = [];
-  for (const link of s.snapshot.value.graph.links) {
-    const a = center(link.fromNode, "output", link.fromSocket),
-      b = center(link.toNode, "input", link.toSocket);
-    if (a && b) result.push({ key: JSON.stringify(link), d: path(a, b), link });
-  }
-  if (draft.pending) {
-    const p = draft.pending,
-      a = center(p.nodeId, p.direction, p.socket);
-    if (a)
-      result.push({
-        key: "pending",
-        d: p.direction === "input" ? path(p.cursor, a) : path(a, p.cursor),
-        pending: true,
-      });
-  }
-  wires.value = result;
+  measureFrame = requestAnimationFrame(() => {
+    scheduled = false;
+    if (!live || !root.value) return;
+    const bounds = root.value.getBoundingClientRect(), { x, y, zoom } = view.value;
+    const centers = new Map<string, { x: number; y: number } | null>();
+    function center(nodeId: string, direction: string, name: string) {
+      const id = nodeId + ":" + direction + ":" + name;
+      if (!centers.has(id)) {
+        const port = root.value?.querySelector<HTMLElement>(`[data-port-id="${CSS.escape(id)}"]`);
+        const b = port?.getBoundingClientRect();
+        centers.set(id, b ? { x: (b.x + b.width / 2 - bounds.left - x) / zoom,
+          y: (b.y + b.height / 2 - bounds.top - y) / zoom } : null);
+      }
+      return centers.get(id);
+    }
+    const result = [];
+    for (const link of s.snapshot.value.graph.links) {
+      const a = center(link.fromNode, "output", link.fromSocket);
+      const b = center(link.toNode, "input", link.toSocket);
+      if (a && b) result.push({ key: JSON.stringify(link), d: path(a, b), link });
+    }
+    if (draft.pending) {
+      const p = draft.pending, a = center(p.nodeId, p.direction, p.socket);
+      if (a) result.push({ key: "pending", d: p.direction === "input" ? path(p.cursor, a) : path(a, p.cursor), pending: true });
+    }
+    wires.value = result;
+  });
 }
-watch(
-  () => [s.model.serial, draft.positions, draft.view, draft.pending],
-  measure,
-  { deep: true, flush: "post" },
-);
+watch([() => s.projection.value, () => draft.positions, () => draft.pending], measure, { flush: "post" });
 watch(
   [() => s.snapshot.value.documentToken, () => s.snapshot.value.stage],
   () => {
@@ -189,7 +193,7 @@ async function choose(id: string) {
     else if (id === "cut") await s.cut();
     else if (id === "paste") await s.paste(p);
     else if (id === "open-preview")
-      await s.preview.open({ nodeId, time: s.model.time });
+      await s.preview.open({ nodeId });
     else if (id === "toggle-preview") await s.action("TOGGLE_SELECTED_PREVIEW");
     else if (id === "disconnect") await s.action("DISCONNECT_SELECTED");
     else if (id === "delete") await s.action("DELETE_SELECTED");
@@ -219,6 +223,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   live = false;
+  cancelAnimationFrame(measureFrame);
   cancel();
   window.removeEventListener("keydown", keyboard);
 });
@@ -245,9 +250,6 @@ onBeforeUnmount(() => {
       id="graph-transform"
       ref="transform"
       class="graph-transform"
-      :style="{
-        transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-      }"
     >
       <svg id="wire-layer" class="wire-layer" aria-hidden="true">
         <path
@@ -319,12 +321,14 @@ onBeforeUnmount(() => {
               onContext: context,
             }"
             ><template #preview
-              ><PreviewSurface
+              ><TimeValue v-if="entry.node.typeId === 'input.time'" :preview="s.preview" />
+              <PreviewSurface
                 v-if="
                   entry.definition.outputs.length &&
                   entry.node.properties.previewEnabled
                 "
                 :session="s"
+                :navigating="draft.navigating"
                 :node-id="entry.node.id"
                 :socket="
                   entry.definition.outputs[0].name

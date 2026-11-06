@@ -6,6 +6,7 @@ export function createWorkspaceService({
   exporter,
   files,
   templates,
+  operations,
   layout,
 }) {
   let live = true;
@@ -21,24 +22,48 @@ export function createWorkspaceService({
           fn();
         } catch {}
   };
-  const snapshot = () => ({
-    ...editor.snapshot(),
-    generatedSources: exporter?.sources() ?? null,
-    exportReadiness: exporter?.readiness() ?? {
-      ready: false,
-      message: "Starsector 导出插件未启用",
-    },
-    workflowNodes: templates
-      ? templates.list({}).items.map((i) => ({
-          id: i.id,
-          title: i.title,
-          preset: !!i.preset,
-          description: i.description || "",
-          nodeCount: i.graph.nodes.length,
-          linkCount: i.graph.links.length,
-        }))
-      : [],
+  // 订阅稳定的操作目录，不绑定可卸载的叶插件。启停组件库不重启工作区或 MCP。
+  let customNodeEditing = false;
+  function readAuthors() {
+    const ids = new Set(
+      operations
+        ?.list()
+        .filter((op) => op.owner === "custom.glsl")
+        .map((op) => op.id),
+    );
+    customNodeEditing =
+      ids.has("custom.glsl.upsert") && ids.has("custom.glsl.remove");
+  }
+  readAuthors();
+  const offOperations = operations?.subscribe(() => {
+    readAuthors();
+    emit();
   });
+  const snapshot = () => {
+    const current = editor.snapshot();
+    return {
+      ...current,
+      generatedSources: exporter?.sources() ?? null,
+      exportReadiness: exporter?.readiness() ?? {
+        ready: false,
+        message: "Starsector 导出插件未启用",
+      },
+      customNodeEditing,
+      customNodes: customNodeEditing
+        ? current.catalog.filter((n) => n.owner === "custom.glsl" && n.glsl)
+        : [],
+      workflowNodes: templates
+        ? templates.list({}).items.map((i) => ({
+            id: i.id,
+            title: i.title,
+            preset: !!i.preset,
+            description: i.description || "",
+            nodeCount: i.graph.nodes.length,
+            linkCount: i.graph.links.length,
+          }))
+        : [],
+    };
+  };
   function editorAction(type, payload = {}) {
     const s = editor.snapshot(),
       r = editor.execute({
@@ -106,6 +131,19 @@ export function createWorkspaceService({
       case "SAVE_SELECTION_AS_WORKFLOW_NODE":
         result = needed(templates, "模板").save(payload);
         break;
+      case "UPSERT_CUSTOM_NODE":
+        if (!customNodeEditing) throw Error("自定义 GLSL 节点插件未启用");
+        result = await operations.execute(
+          "custom.glsl.upsert",
+          payload.definition,
+        );
+        break;
+      case "DELETE_CUSTOM_NODE":
+        if (!customNodeEditing) throw Error("自定义 GLSL 节点插件未启用");
+        result = await operations.execute("custom.glsl.remove", {
+          typeId: payload.typeId,
+        });
+        break;
       case "DELETE_WORKFLOW_NODE":
         result = needed(templates, "模板").remove(payload);
         break;
@@ -147,6 +185,15 @@ export function createWorkspaceService({
     offExport = exporter?.subscribe(emit);
   return {
     ...guarded,
+    execute(request) {
+      const type = request?.actions?.[0]?.type;
+      if (request?.actions?.length === 1 && (type === "SET_VIEW" || type === "SET_SELECTION")) {
+        // 视图操作仍由同一命令守卫校验，省去工作区为此读取模板、导出物和双阶段图。
+        return editor.execute(request);
+      }
+      return guarded.execute(request);
+    },
+    revision: () => editor.revision(),
     inspect: (...a) => editor.inspect(...a),
     edit: (...a) => editor.edit(...a),
     addNode: (...a) => editor.addNode(...a),
@@ -168,6 +215,7 @@ export function createWorkspaceService({
       live = false;
       off();
       offExport?.();
+      offOperations?.();
       listeners.clear();
     },
   };

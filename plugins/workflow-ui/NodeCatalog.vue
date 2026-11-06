@@ -27,6 +27,12 @@ const templates = computed(() =>
       .includes(props.session.model.search.toLowerCase()),
   ),
 );
+const editable = computed(
+  () =>
+    new Set(
+      props.session.snapshot.value.customNodes?.map((n: any) => n.typeId),
+    ),
+);
 const custom = (n: any) => {
   props.session.model.custom = { definition: n };
 };
@@ -36,11 +42,7 @@ function drag(e: DragEvent, key: string, value: string) {
 }
 function remove(e: MouseEvent, n: any, template = false) {
   e.preventDefault();
-  if (
-    n.preset ||
-    (!template && ["custom.radialFade", "custom.innerFade"].includes(n.typeId))
-  )
-    return;
+  if (n.preset) return;
   if (!confirm("删除“" + n.title + "”？已有图中内容不会删除。")) return;
   void props.session.run(() =>
     props.session.action(
@@ -62,11 +64,15 @@ function remove(e: MouseEvent, n: any, template = false) {
   </div>
   <div id="node-catalog" class="node-catalog">
     <UiButton
+      v-if="session.snapshot.value.customNodeEditing"
       id="create-custom-node"
       class="catalog-create-custom"
       @click="session.model.custom = {}"
       >+ 创建自定义 GLSL 节点</UiButton
     >
+    <p v-else class="type-hint">
+      在插件中心启用「自定义 GLSL 节点」即可创建节点。
+    </p>
     <section
       v-if="templates.length"
       class="catalog-category workflow-node-category"
@@ -114,8 +120,8 @@ function remove(e: MouseEvent, n: any, template = false) {
           :title="n.title + ' · ' + n.typeId"
           draggable="true"
           @dragstart="drag($event, 'node-type', n.typeId)"
-          @dblclick="n.typeId.startsWith('custom.') && custom(n)"
-          @contextmenu="n.typeId.startsWith('custom.') && remove($event, n)"
+          @dblclick="editable.has(n.typeId) && custom(n)"
+          @contextmenu="editable.has(n.typeId) && remove($event, n)"
         >
           <span class="catalog-dot" /><span>{{ n.title }}</span>
         </div>

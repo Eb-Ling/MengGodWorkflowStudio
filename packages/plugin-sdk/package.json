@@ -18,6 +18,7 @@
     "./pipeline-types": "./pipeline-types.ts",
     "./contracts": "./contracts.mjs",
     "./document": "./document.mjs",
+    "./glsl-node": "./glsl-node.mjs",
     "./ir": "./ir.mjs",
     "./schema": "./schema.mjs",
     "./commands": "./commands.mjs",

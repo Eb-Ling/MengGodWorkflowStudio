@@ -1,4 +1,4 @@
-import { readDocument } from "../../packages/plugin-sdk/document.mjs";
+import { readWorkflowDocument as readDocument } from "../../packages/workflow-tools/custom-component-import.mjs";
 import { projectContent } from "../../packages/plugin-sdk/project-files.mjs";
 /** 当前文档仓储：草稿与项目库都只保存完整 v1.0 文档。 */
 export class WorkflowRepository {
@@ -24,6 +24,23 @@ export class WorkflowRepository {
     const values = this.read(this.local, "workflow.documents", []);
     if (!Array.isArray(values)) throw new Error("项目库必须是 v1.0 文档数组");
     return values.map(readDocument);
+  }
+  /** 快照只需要库索引。同一版存储不重复解析、校验所有保存的节点。 */
+  librarySummaries() {
+    const keys = ["workflow.documents", "workflow.fileBindings"];
+    const version = this.local.getVersion?.(keys);
+    const raw = version === undefined ? keys.map(key => this.local.getItem(key)) : null;
+    const cache = this.summaryCache;
+    if (!cache || cache.version !== version || (raw && raw.some((v, i) => v !== cache.raw[i]))) {
+      const bindings = this.readIndex(keys[1]);
+      const items = this.getLibrary().map(({ project, graphs }) => ({
+        id: project.id, title: project.title, className: project.className, shaderDir: project.shaderDir,
+        nodeCount: graphs.fragment.nodes.length, linkCount: graphs.fragment.links.length,
+        file: bindings[project.id] || null,
+      }));
+      this.summaryCache = { version, raw, items };
+    }
+    return structuredClone(this.summaryCache.items);
   }
   setLibrary(values) {
     this.write(this.local, "workflow.documents", values.map(readDocument));

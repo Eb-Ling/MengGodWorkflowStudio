@@ -16,7 +16,8 @@ export type RemoteWorkflowApi = AsyncApi<
   >
 >;
 /** register 在隔离侧同步收集声明，list/get 是异步公开读接口。 */
-export type RemoteNodeApi = Pick<NodeApi, "register"> &
+// 目录脚本在 activate 中收集静态贡献，重载目录即可更新实现。
+export type RemoteNodeApi = { register(batch: Parameters<NodeApi["register"]>[0]): { dispose(): void } } &
   AsyncApi<Pick<NodeApi, "list" | "get">>;
 type UiBase = { id: string; label?: string; disabled?: boolean };
 /** 不含 HTML/CSS/回调。树深最多 8 层、控件最多 256 个，ID 在树内唯一。 */

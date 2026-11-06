@@ -1,5 +1,6 @@
 /** 内置浏览器插件的业务角色，接入手续单独由 L1 plugin-runtime 承接。新增角色须明确登记。 */
 export const pluginLayers = Object.freeze({
+  "custom.glsl": 2,
   "studio.compiler": 2,
   "studio.declarations": 2,
   "example.layout": 2,
@@ -39,6 +40,7 @@ export function inspectBusinessDependencies(manifests) {
       "shader.backend.glsl",
       "workflow.operations",
     ],
+    "custom.glsl": ["workflow.nodes", "workflow.operations", "platform.browser"],
     "studio.math": ["workflow.nodes"],
     "studio.noise": ["workflow.nodes"],
     "studio.sdf": ["workflow.nodes"],

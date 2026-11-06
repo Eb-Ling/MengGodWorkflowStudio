@@ -15,7 +15,7 @@ export const previewManifest = {
       transport: "local",
       scoped: true,
       methods: Object.fromEntries(
-        ["mount", "frame", "open", "close", "status", "compilationStatus"].map((name) => [
+        ["mount", "frame", "open", "close", "status", "compilationStatus", "subscribePlayback", "setPlayback"].map((name) => [
           name,
           { capability: "preview.render" },
         ]),

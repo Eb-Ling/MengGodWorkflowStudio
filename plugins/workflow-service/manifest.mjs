@@ -14,7 +14,7 @@ export const workflowServiceManifest = {
     "platform.workspace-state": "^1.0.0",
     "workflow.node-catalog": "^1.0.0",
   },
-  capabilities: ["workflow.host", "nodes.read", "nodes.configure"],
+  capabilities: ["workflow.host", "nodes.read"],
   providesApis: {
     "workflow.library": local({
       read: { capability: "project.storage" },
@@ -24,6 +24,7 @@ export const workflowServiceManifest = {
     "workflow.editor": local(
       Object.fromEntries(
         Object.entries({
+          revision: "workflow.read",
           snapshot: "workflow.read",
           inspect: "workflow.read",
           execute: "workflow.write",

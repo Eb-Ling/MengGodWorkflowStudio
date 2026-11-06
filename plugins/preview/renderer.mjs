@@ -10,11 +10,15 @@ export function createWebGLRenderer({ compile, identity }) {
       premultipliedAlpha: false,
     });
   const programs = new Map(),
-    textures = new Map();
+    textures = new Map(),
+    resolved = new WeakMap(),
+    decoders = new Set();
   let live = true,
     generation = 0,
     draws = 0,
     hits = 0,
+    warmFrames = 0, pixelsDrawn = 0,
+    pixelLimit = 0,
     misses = 0,
     queued = 0,
     quad = null,
@@ -53,19 +57,37 @@ export function createWebGLRenderer({ compile, identity }) {
       }
     }
   }
+  function contextLost(event) {
+    event.preventDefault();
+    lost = true;
+    generation++;
+    for (const cancel of decoders) cancel();
+    quad = null;
+    programs.clear();
+    textures.clear();
+  }
+  function contextRestored() {
+    if (!live) return;
+    lost = false;
+    pixelLimit = 0;
+    quad = gl.createBuffer();
+  }
+  function dropWorkspace() {
+    generation++;
+    for (const cancel of decoders) cancel();
+    if (gl && !lost) {
+      gl.useProgram(null);
+      for (const v of programs.values()) gl.deleteProgram(v.program);
+      for (const v of textures.values()) gl.deleteTexture(v.id);
+    }
+    programs.clear();
+    textures.clear();
+    surface.width = surface.height = 1;
+  }
   if (gl) {
     quad = gl.createBuffer();
-    surface.addEventListener("webglcontextlost", (event) => {
-      event.preventDefault();
-      lost = true;
-      generation++;
-      programs.clear();
-      textures.clear();
-    });
-    surface.addEventListener("webglcontextrestored", () => {
-      lost = false;
-      quad = gl.createBuffer();
-    });
+    surface.addEventListener("webglcontextlost", contextLost);
+    surface.addEventListener("webglcontextrestored", contextRestored);
   }
   const check = (epoch) => {
     if (!live || lost || epoch !== generation)
@@ -95,6 +117,8 @@ export function createWebGLRenderer({ compile, identity }) {
       gl.linkProgram(p);
       if (!gl.getProgramParameter(p, gl.LINK_STATUS))
         throw Error(gl.getProgramInfoLog(p) || "GLSL 链接失败");
+      gl.detachShader(p, v);
+      gl.detachShader(p, f);
       return p;
     } catch (e) {
       if (p) gl.deleteProgram(p);
@@ -117,8 +141,18 @@ export function createWebGLRenderer({ compile, identity }) {
         throw Error("纹理预览只读取工作流内的图像");
       image = await new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(Error("纹理预览图无法解码"));
+        function finish() {
+          img.onload = img.onerror = null;
+          decoders.delete(cancel);
+        }
+        function cancel() {
+          finish();
+          img.removeAttribute("src");
+          reject(Error("预览纹理请求已过期"));
+        }
+        decoders.add(cancel);
+        img.onload = () => { finish(); resolve(img); };
+        img.onerror = () => { finish(); reject(Error("纹理预览图无法解码")); };
         img.src = dataUrl;
       });
       check(epoch);
@@ -213,10 +247,13 @@ export function createWebGLRenderer({ compile, identity }) {
       gl["uniformMatrix" + type.at(-1) + "fv"](location, false, numeric());
     else gl.uniform1f(location, Number(value));
   }
-  async function render(request) {
+  async function render(request, epoch, { isWanted, clip }) {
     if (!gl) throw Error("当前浏览器不支持 WebGL2");
-    const epoch = generation;
-    check(epoch);
+    function checkRequest() {
+      check(epoch);
+      if (isWanted && !isWanted()) throw Error("预览请求已过期");
+    }
+    checkRequest();
     const {
       document: doc,
       stage = "fragment",
@@ -226,7 +263,7 @@ export function createWebGLRenderer({ compile, identity }) {
       height = 1024,
       time = 0,
     } = request;
-    const limit = Math.min(
+    const limit = pixelLimit ||= Math.min(
       4096,
       gl.getParameter(gl.MAX_TEXTURE_SIZE),
       ...gl.getParameter(gl.MAX_VIEWPORT_DIMS),
@@ -244,8 +281,19 @@ export function createWebGLRenderer({ compile, identity }) {
       stage,
       ...(nodeId ? { nodeId, socket } : {}),
     };
-    const { key } = await identity(input);
-    check(epoch);
+    // 协调器为同一修订复用不可变文档。动态编译提供者变动会使目录修订失效。
+    // 单独调用渲染器、可变输入、程序被淘汰或上下文丢失时，仍走完整身份校验。
+    const stable = request.catalogRevision !== undefined;
+    let memo = stable ? resolved.get(doc) : null;
+    if (stable && (!memo || memo.revision !== request.catalogRevision)) {
+      memo = { revision: request.catalogRevision, keys: new Map() };
+      resolved.set(doc, memo);
+    }
+    const target = JSON.stringify([stage, nodeId, socket]);
+    const known = memo?.keys.get(target);
+    const warm = !!known && programs.get(known.key)?.serial === known.serial;
+    const key = warm ? known.key : (await identity(input)).key;
+    checkRequest();
     let entry = programs.get(key);
     if (entry) {
       hits++;
@@ -255,10 +303,11 @@ export function createWebGLRenderer({ compile, identity }) {
     if (!entry) {
       misses++;
       const compiled = await compile(input);
-      check(epoch);
+      checkRequest();
       entry = programs.get(key);
       if (!entry) {
         entry = {
+          serial: misses,
           program: program(compiled),
           compiled,
           bytes: 2 * (key.length + JSON.stringify(compiled).length),
@@ -267,17 +316,22 @@ export function createWebGLRenderer({ compile, identity }) {
       }
     }
     const metadata = entry.compiled;
-    validatePreviewParameters(
-      metadata.inputs || [],
-      metadata.textures || [],
-      (n) => "u_textureAspect_" + n,
-    );
-    metadata.inputs = (metadata.inputs || []).filter(
-      (p, i, all) => all.findIndex((v) => v.name === p.name) === i,
-    );
-    metadata.textures = (metadata.textures || []).filter(
-      (p, i, all) => all.findIndex((v) => v.name === p.name) === i,
-    );
+    if (!entry.prepared) {
+      validatePreviewParameters(
+        metadata.inputs || [],
+        metadata.textures || [],
+        (n) => "u_textureAspect_" + n,
+      );
+      metadata.inputs = (metadata.inputs || []).filter(
+        (p, i, all) => all.findIndex((v) => v.name === p.name) === i,
+      );
+      metadata.textures = (metadata.textures || []).filter(
+        (p, i, all) => all.findIndex((v) => v.name === p.name) === i,
+      );
+      entry.position = gl.getAttribLocation(entry.program, "position");
+      entry.time = gl.getUniformLocation(entry.program, "u_time");
+      entry.prepared = true;
+    }
     const imageData = (t) =>
       (t.stage === "vertex" ? doc.geometry.graph : doc.fragment).nodes.find(
         (n) => n.id === t.nodeId && n.typeId === "input.texture",
@@ -290,16 +344,26 @@ export function createWebGLRenderer({ compile, identity }) {
     const failure = loaded.find((item) => item.status === "rejected");
     if (failure) throw failure.reason;
     const images = loaded.map((item) => item.value);
-    check(epoch);
-    if ((await identity(input)).key !== key)
+    checkRequest();
+    if (!warm && (await identity(input)).key !== key)
       throw Error("节点提供者已变化，预览程序已过期");
-    check(epoch);
+    checkRequest();
+    if (!warm && memo) memo.keys.set(target, {key, serial: entry.serial});
+    if (warm) warmFrames++;
     const p = entry.program;
-    surface.width = width;
-    surface.height = height;
+    if (surface.width !== width) surface.width = width;
+    if (surface.height !== height) surface.height = height;
     gl.viewport(0, 0, width, height);
     gl.disable(gl.BLEND);
-    gl.disable(gl.SCISSOR_TEST);
+    // 使用完整画布计算坐标，只清除和绘制当前可见的像素，MCP 单帧继续绘制整图。
+    let region;
+    if (clip) {
+      const x = Math.floor(clip.left * width), y = Math.floor(clip.top * height);
+      const w = Math.ceil(clip.right * width) - x, h = Math.ceil(clip.bottom * height) - y;
+      region = { x, y, w, h };
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(x, height - y - h, w, h);
+    } else gl.disable(gl.SCISSOR_TEST);
     gl.disable(gl.DEPTH_TEST);
     gl.useProgram(p);
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -307,12 +371,13 @@ export function createWebGLRenderer({ compile, identity }) {
       ? [-1, -1, 1, -1, -1, 1, 1, 1]
       : doc.geometry.vertices.flat();
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-    const location = gl.getAttribLocation(p, "position");
+    const location = entry.position;
     if (location >= 0) {
       gl.enableVertexAttribArray(location);
       gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
     }
-    gl.uniform1f(gl.getUniformLocation(p, "u_time"), time);
+    const timeUniform = entry.time;
+    gl.uniform1f(timeUniform, time);
     (metadata.textures || []).forEach((t, i) => {
       gl.activeTexture(gl.TEXTURE0 + i);
       gl.bindTexture(gl.TEXTURE_2D, images[i].id);
@@ -371,35 +436,43 @@ export function createWebGLRenderer({ compile, identity }) {
       }
     }
     draws++;
-    return { surface, width, height };
+    pixelsDrawn += region ? region.w * region.h : width * height;
+    return { surface, width, height, region, usesTime: timeUniform !== null };
   }
   // 资源准备、绘图及复制同属一个队列项，调用者必须在 receive 中同步取图，避免共享画布被下一帧覆盖。
   return {
+    resetWorkspace: dropWorkspace,
     releaseFrame() {
       surface.width = surface.height = 1;
     },
-    render(request, receive) {
+    render(request, receive, options = {}) {
       if (!live || queued >= limits.pending)
         return Promise.reject(Error("GPU 预览已停用或请求过多，请稍后重试"));
+      const epoch = generation;
       queued++;
       const pending = queue.then(async () => {
         try {
-          return receive(await render(request));
+          return receive(await render(request, epoch, options));
         } finally {
           queued--;
           if (gl && live && !lost) trim();
         }
       });
-      queue = pending.catch(() => {});
+      // 队尾只保存执行顺序，避免最后一张 PNG 被 Promise 持有到下一次请求。
+      queue = pending.then(() => undefined, () => undefined);
       return pending;
     },
     status: () => ({
       available: !!gl && live && !lost,
+      textureDecoders: decoders.size,
+      scratchPixels: surface.width * surface.height,
       programs: programs.size,
       textures: textures.size,
       draws,
       hits,
       misses,
+      warmFrames,
+      pixelsDrawn,
       pending: queued,
       programBytes: bytes(programs),
       textureBytes: bytes(textures),
@@ -408,16 +481,14 @@ export function createWebGLRenderer({ compile, identity }) {
     dispose() {
       if (!live) return;
       live = false;
-      generation++;
+      surface.removeEventListener?.("webglcontextlost", contextLost);
+      surface.removeEventListener?.("webglcontextrestored", contextRestored);
+      dropWorkspace();
       if (gl && !lost) {
-        for (const v of programs.values()) gl.deleteProgram(v.program);
-        for (const v of textures.values()) gl.deleteTexture(v.id);
         gl.deleteBuffer(quad);
         gl.getExtension("WEBGL_lose_context")?.loseContext();
       }
-      programs.clear();
-      textures.clear();
-      surface.width = surface.height = 1;
+      quad = null;
     },
   };
 }

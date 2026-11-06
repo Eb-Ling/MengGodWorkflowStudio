@@ -29,12 +29,12 @@ export async function previewUserPath() {
       .locator(`.workflow-node[data-id="${id}"] header`)
       .click({ button: "right" });
     await page.locator('[data-action="open-preview"]').click();
-    await viewer.locator("img").waitFor();
+    await viewer.locator("canvas").waitFor();
   }
   async function frame(width, height, name) {
-    await viewer.locator(`img[width="${width}"][height="${height}"]`).waitFor();
+    await viewer.locator(`canvas[width="${width}"][height="${height}"]`).waitFor();
     const data = Buffer.from(
-      (await viewer.locator("img").getAttribute("src")).split(",")[1],
+      (await viewer.locator("canvas").evaluate(canvas => canvas.toDataURL())).split(",")[1],
       "base64",
     );
     assert.equal(data.readUInt32BE(16), width);
@@ -49,13 +49,13 @@ export async function previewUserPath() {
     await frame(4096, 4096, "4096");
     await viewer.locator('[data-preview-action="actual"]').click();
     assert.equal(await viewer.locator(".preview-scale").innerText(), "100%");
-    const before = await viewer.locator("img").getAttribute("style"),
+    const before = await viewer.locator("canvas").getAttribute("style"),
       rect = await viewer.locator(".preview-viewport").boundingBox();
     await page.mouse.move(rect.x + 150, rect.y + 150);
     await page.mouse.down();
     await page.mouse.move(rect.x + 215, rect.y + 190, { steps: 8 });
     await page.mouse.up();
-    assert.notEqual(await viewer.locator("img").getAttribute("style"), before);
+    assert.notEqual(await viewer.locator("canvas").getAttribute("style"), before);
     await page.mouse.wheel(0, -150);
     await page.waitForTimeout(100);
     assert.notEqual(await viewer.locator(".preview-scale").innerText(), "100%");

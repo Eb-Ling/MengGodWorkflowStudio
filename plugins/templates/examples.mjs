@@ -200,7 +200,7 @@ export function mingGodSignGraph() {
   };
   const radialFade = {
     id: "sign_radial_fade",
-    typeId: "custom.radialFade",
+    typeId: "custom.glsl.radialFade",
     title: "径向 Fade（自定义 GLSL）",
     canvasX: 1970,
     canvasY: 700,
@@ -208,7 +208,7 @@ export function mingGodSignGraph() {
   };
   const innerFade = {
     id: "sign_inner_fade",
-    typeId: "custom.innerFade",
+    typeId: "custom.glsl.innerFade",
     title: "内环 Fade（自定义 GLSL）",
     canvasX: 2210,
     canvasY: 700,

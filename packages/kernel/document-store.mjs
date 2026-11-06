@@ -20,6 +20,13 @@ export class DocumentStore {
     this.onObserverError = onObserverError;
     this.reset(document, false);
   }
+  /** 读取修订号不会复制文档内容。 */
+  revision() { return this.#state.revision; }
+  /** 校验视口和选区命令只需当前身份，不复制节点、纹理或历史。 */
+  commandState(stage) {
+    return { project: { id: this.#state.project.id }, documentRevision: this.#state.revision,
+      graph: { revision: this.#state.graphs[stage].revision } };
+  }
   snapshot() {
     return copyJson(this.#state);
   }

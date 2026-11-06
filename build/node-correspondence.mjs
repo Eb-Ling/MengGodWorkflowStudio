@@ -123,7 +123,7 @@ export function nodeCorrespondence() {
     });
   }
   for (const name of ["radialFade", "innerFade"]) {
-    const id = "custom." + name,
+    const id = "custom.glsl." + name,
       g = graph(
         [uv, split, node("time", "input.time"), node("custom", id)],
         [

@@ -65,7 +65,6 @@ export function createDeclarationSession(
     busy = true;
     let changed = false;
     try {
-      syncDocument();
       const currentEpoch = epoch,
         result = ui.events({ after });
       after = result.cursor;

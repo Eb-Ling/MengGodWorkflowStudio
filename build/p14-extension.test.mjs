@@ -31,43 +31,18 @@ import { normalizeTransform } from "../packages/workflow-tools/geometry.mjs";
 import { inspectBusinessDependencies } from "./layer-policy.mjs";
 import { createEditorApplication } from "../plugins/workflow-service/application.mjs";
 
-test("P14 编辑会话退出不释放独立节点目录，自定义多段 ID 和持久化仍可用", () => {
-  const ports = workspacePorts(),
-    model = nodeModelFixture(ports);
-  const definition = {
-    typeId: "custom.my-node.color",
-    title: "颜色",
-    inputs: [],
-    outputs: [{ name: "color", type: "VEC4" }],
-    properties: { custom: true },
-  };
+test("P14 编辑会话退出不释放其他插件登记的节点", () => {
+  const ports = workspacePorts(), model = nodeModelFixture(ports);
   try {
-    model.catalog.setCustom(definition);
-    const handle = model.nodeApi("studio.math").register(mathContribution());
-    const app = createEditorApplication(ports, model.catalog);
-    app.dispose();
-    assert.ok(model.catalog.list().some((n) => n.typeId === definition.typeId));
-    assert.ok(
-      model.catalog.list().some((n) => n.typeId === "studio.math.constant"),
-    );
+    const h = model.nodeApi("studio.math").register(mathContribution());
+    createEditorApplication(ports, model.catalog).dispose();
     const copy = model.catalog.list();
+    assert.ok(copy.some(n => n.owner === "studio.math"));
     copy.length = 0;
     assert.ok(model.catalog.list().length > 0);
-    handle.dispose();
-    const restored = nodeModelFixture(ports);
-    try {
-      assert.equal(restored.catalog.customNodes()[0].typeId, definition.typeId);
-      restored.catalog.removeCustom(definition.typeId);
-      assert.equal(
-        restored.catalog.list().some((n) => n.typeId === definition.typeId),
-        false,
-      );
-    } finally {
-      restored.dispose();
-    }
-  } finally {
-    model.dispose();
-  }
+    h.dispose();
+    assert.ok(!model.catalog.list().some(n => n.owner === "studio.math"));
+  } finally { model.dispose(); }
 });
 
 test("P14 节点和编译独立运行，不登记编辑器、文档会话或 UI，三轮清理后重建", async () => {

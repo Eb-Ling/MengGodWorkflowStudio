@@ -374,7 +374,7 @@ test("real stdio tools reach the kernel through the optional MCP HTTP and editor
     assert.equal(init.protocolVersion, "2025-06-18");
     client.notify("notifications/initialized");
     const tools = await client.request("tools/list");
-    assert.equal(tools.tools.length, 52);
+    assert.equal(tools.tools.length, 53);
     assert.ok(tools.tools.some(tool => tool.name === "workflow_project_file"));
     const edited = await client.request("tools/call", {
       name: "workflow_submit_commands",
@@ -451,4 +451,52 @@ test("kernel and MCP imports respect the declared architecture boundary", async 
       name,
     );
   }
+});
+
+test("空闲轮询续租不发布文档，过期或未知的编辑器必须重新发布", () => {
+  let ms = 1000;
+  const bridge = createBridgeService({now:()=>ms,leaseMs:100});
+  const id = {editorId:"pan",incarnation:"one"};
+  try {
+    assert.equal(bridge.pull(id).needsState,true);
+    bridge.publish({...id,documentToken:"doc",project:{id:"p"},graph:{nodes:[]}});
+    bridge.activate(id);
+    for(let i=0;i<5;i++){ms+=70; assert.deepEqual(bridge.pull(id).requests,[]);}
+    assert.equal(bridge.state().editorConnected,true);
+    ms+=120;
+    assert.equal(bridge.pull(id).needsState,true);
+    assert.equal(bridge.state().editorConnected,false);
+  } finally { bridge.dispose(); }
+});
+
+test("组件反复取消订阅立即释放宿主登记，剩余订阅仍由宿主兜底", async () => {
+  const {ownCleanup}=await import("../packages/plugin-sdk/registration.mjs");
+  const callbacks=new Set();
+  const own=fn=>{callbacks.add(fn);return ()=>callbacks.delete(fn);};
+  let releases=0;
+  for (let i=0;i<100;i++){
+    const stop=ownCleanup(own,()=>releases++);
+    stop(); stop();
+    assert.equal(callbacks.size,0);
+  }
+  ownCleanup(own,()=>releases++);
+  for(const release of callbacks) release();
+  assert.equal(releases,101);
+  assert.equal(callbacks.size,0);
+});
+
+test("窗口异常退出且无新请求时，租约到期自行释放快照并结清命令", async (t) => {
+  t.mock.timers.enable({apis:["setTimeout"]});
+  let now=1000;
+  const f=editor(), bridge=createBridgeService({leaseMs:100,timeoutMs:8000,now:()=>now});
+  try {
+    const id=publish(bridge,f);
+    bridge.activate(id);
+    const pending=bridge.submit(f.envelope([rename("Expired")]));
+    now+=101;
+    t.mock.timers.tick(101);
+    assert.match((await pending).error,/连接已过期/);
+    assert.equal(bridge.pull(id).needsState,true);
+    assert.equal(bridge.state().graph,null);
+  } finally { bridge.dispose(); }
 });

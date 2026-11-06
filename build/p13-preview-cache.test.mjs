@@ -18,6 +18,7 @@ function fixture(options = {}) {
       deleteTexture: (t) => deleted.push(t),
       getUniformLocation: () => null,
       getAttribLocation: () => -1,
+      ...options.gl,
     };
   const gl = new Proxy(methods, {
     get: (o, k) =>
@@ -32,7 +33,7 @@ function fixture(options = {}) {
     createElement: () => ({ getContext: () => gl, addEventListener() {} }),
   };
   const renderer = createWebGLRenderer({
-    identity: async (r) => ({ key: r.document.config.id }),
+    identity: options.identity || (async (r) => ({ key: r.document.config.id })),
     compile: async (r) => {
       compiled.push(r);
       return options.compile
@@ -153,4 +154,45 @@ test("GPU 在途请求有上限，停用拒绝全部排队结果并归零", asyn
   } finally {
     f.dispose();
   }
+});
+
+test("同一节点的动画复用身份解析，目录修订或文档改变后重新校验", async () => {
+  let checks = 0;
+  const f = fixture({identity: async r => (checks++, {key:r.document.config.id})});
+  try {
+    const req = {...f.request("one"),catalogRevision:1};
+    await f.renderer.render(req, () => {});
+    const first = checks;
+    assert.ok(first >= 2);
+    for (const time of [0.1,0.2,0.3]) await f.renderer.render({...req,time}, () => {});
+    assert.equal(checks,first);
+    assert.equal(f.renderer.status().warmFrames,3);
+    assert.equal(f.renderer.status().pixelsDrawn,4*64*64);
+    await f.renderer.render({...req,catalogRevision:2}, () => {});
+    assert.ok(checks > first);
+    await f.renderer.render({...req,document:f.request("two").document}, () => {});
+    assert.equal(f.compiled.length,2);
+  } finally { f.dispose(); }
+});
+
+test("高清视口只着色相交像素，切换工作流释放程序并拒绝旧队列", async () => {
+  const scissors=[];
+  const f=fixture({gl:{scissor:(...args)=>scissors.push(args)}});
+  try {
+    const request=f.request("crop");
+    const clip={left:0.25,top:0.125,right:0.75,bottom:0.5};
+    const region=await f.renderer.render(request,frame=>frame.region,{clip});
+    assert.deepEqual(region,{x:16,y:8,w:32,h:24});
+    assert.deepEqual(scissors,[[16,32,32,24]]);
+    assert.equal(f.renderer.status().pixelsDrawn,32*24);
+    const stale=f.renderer.render(request,()=>true);
+    f.renderer.resetWorkspace();
+    await assert.rejects(stale,/过期/);
+    assert.equal(f.renderer.status().programs,0);
+    assert.equal(f.renderer.status().scratchPixels,1);
+    assert.equal(f.renderer.status().pending,0);
+    assert.equal(f.deleted.length,1);
+    await f.draw("new");
+    assert.equal(f.renderer.status().pixelsDrawn,32*24+64*64);
+  } finally {f.dispose();}
 });

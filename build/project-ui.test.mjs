@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createProjectSession } from "../plugins/project-ui/session.mjs";
+import { createProjectSession, readProjectForm } from "../plugins/project-ui/session.mjs";
+import { validateAction } from "../packages/plugin-sdk/commands.mjs";
 import { createRuntimeHistory } from "../plugins/starsector/history.mjs";
 const storage = () => {
   const map = new Map();
@@ -9,6 +10,18 @@ const storage = () => {
     setItem: (k, v) => map.set(k, v),
   };
 };
+test("项目表单将输入框文本转换为合法命令，空白及非法尺寸在提交前报错", () => {
+  const form = { title: "预览", previewWidth: "1024", previewHeight: " 512 " };
+  const config = readProjectForm(form);
+  assert.deepEqual(config, { title: "预览", previewWidth: 1024, previewHeight: 512 });
+  assert.equal(form.previewWidth, "1024");
+  validateAction("SET_PROJECT_CONFIG", config);
+  for (const value of ["", " ", "bad", "Infinity", NaN, "63", "4097", "128.5"]) {
+    assert.throws(() => readProjectForm({ ...form, previewWidth: value }), /预览画布宽度/);
+    assert.throws(() => readProjectForm({ ...form, previewHeight: value }), /预览画布高度/);
+  }
+  assert.equal(readProjectForm({ ...form, previewWidth: 64, previewHeight: "4096" }).previewHeight, 4096);
+});
 test("依赖历史按路径和版本记录，不能用一个包的下载放行另一个包", () => {
   const store = storage(),
     history = createRuntimeHistory(store);

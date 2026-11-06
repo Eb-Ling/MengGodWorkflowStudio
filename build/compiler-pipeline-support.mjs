@@ -1,3 +1,4 @@
+import {createComponentLibrary} from "../plugins/custom-nodes/library.mjs";
 import { createNodeCatalog } from "../plugins/node-model/node-catalog.mjs";
 import { createNodeContributions } from "../frontend/application/node-contributions.js";
 import { createGraphSemantics } from "../packages/workflow-tools/graph-semantics.mjs";
@@ -25,6 +26,7 @@ export function pipelineHarness(stage = "fragment") {
     ["studio.noise", noiseContribution],
   ])
     handles[id] = contributions.registry.register(id, "1.0.0", factory());
+  createComponentLibrary(contributions.createApi("custom.glsl"), {get: () => null});
   const semantics = createGraphSemantics(
       () => contributions.catalog,
       () => stage,

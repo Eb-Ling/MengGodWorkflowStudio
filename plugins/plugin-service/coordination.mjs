@@ -37,25 +37,22 @@ export function createAdministration({
     );
   }
   async function synchronize(plugins) {
-    if (
-      plugins.some((p) => p.id === "studio.ui" && !p.enabled) &&
-      host.list().some((p) => p.id === "studio.ui" && p.enabled)
-    )
-      rememberUi();
-    for (const remote of [
-      ...plugins.filter((p) => !p.enabled),
-      ...plugins.filter((p) => p.enabled),
-    ])
-      if (
-        builtinIds.has(remote.id) &&
-        host
-          .list()
-          .some((p) => p.id === remote.id && p.enabled !== remote.enabled)
-      )
-        await host.setEnabled(remote.id, remote.enabled, { defer: true });
-    for (const local of host.list().filter((p) => builtinIds.has(p.id)))
-      if (plugins.find((p) => p.id === local.id)?.enabled !== local.enabled)
-        await request({ id: local.id, enabled: local.enabled });
+    // 正常轮询只取一次本地列表。实际启停可能连带改变依赖，此时才重新读取。
+    const localStates = () => new Map(host.list().filter(p => builtinIds.has(p.id)).map(p => [p.id, p.enabled]));
+    let local = localStates(), changed = false;
+    const remoteStates = new Map(plugins.map(p => [p.id, p.enabled]));
+    if (remoteStates.get("studio.ui") === false && local.get("studio.ui")) rememberUi();
+    for (const remote of [...plugins.filter(p => !p.enabled), ...plugins.filter(p => p.enabled)]) {
+      if (!local.has(remote.id) || local.get(remote.id) === remote.enabled) continue;
+      await host.setEnabled(remote.id, remote.enabled, { defer: true });
+      local = localStates();
+      changed = true;
+    }
+    for (const [id, enabled] of local) if (remoteStates.get(id) !== enabled) {
+      await request({ id, enabled });
+      changed = true;
+    }
+    return changed;
   }
   let revision = 0;
   const management = createPluginManagement({
@@ -131,8 +128,7 @@ export function createAdministration({
         try {
           const plugins = await request();
           if (!closed && current === revision && !management.busy) {
-            await synchronize(plugins);
-            management.notify();
+            if (await synchronize(plugins)) management.notify();
           }
         } catch {
         } finally {

@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 import { workflowServiceManifest } from "./manifest.mjs";
 import { createWorkflowService } from "./service.mjs";
 import { createPresentationApi } from "./presentation.mjs";
@@ -48,13 +49,11 @@ export const workflowServicePlugin = {
       ...service,
       subscribe(listener) {
         const off = service.subscribe(listener);
-        own(off);
-        return off;
+        return ownCleanup(own, off);
       },
       onActivity(listener) {
         const off = service.onActivity(listener);
-        own(off);
-        return off;
+        return ownCleanup(own, off);
       },
     }));
     context.provide("workflow.presentation", () => presentation);

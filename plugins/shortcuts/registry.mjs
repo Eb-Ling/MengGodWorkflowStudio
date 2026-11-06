@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 import {
   normalizeShortcut,
   shortcutFromEvent,
@@ -131,8 +132,7 @@ export function createShortcutRegistry(preferences) {
               notify();
             },
           };
-          own(handle.dispose);
-          return handle;
+          return { dispose: ownCleanup(own, handle.dispose) };
         },
         list() {
           check();
@@ -142,8 +142,7 @@ export function createShortcutRegistry(preferences) {
           check();
           listeners.add(fn);
           const off = () => listeners.delete(fn);
-          own(off);
-          return off;
+          return ownCleanup(own, off);
         },
         configure(id, value) {
           check();

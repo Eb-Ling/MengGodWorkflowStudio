@@ -15,7 +15,7 @@ export async function compilerCases({ tool, mutate, guards, add, link, out }) {
     await mutate('workflow_set_stage',{targetStage:'fragment'});
     const old = await tool("workflow_get_summary");
     const custom = {
-      typeId: "custom.mcp"+mode,
+      typeId: "custom.glsl.mcp"+mode,
       title: "MCP module",
       properties: {
         parameters:
@@ -92,7 +92,7 @@ export async function compilerCases({ tool, mutate, guards, add, link, out }) {
         link("one", "value", "b", "value"),
       );
     commands.push(
-      add("custom", "custom.mcp"+mode, {}, 950, 550),
+      add("custom", "custom.glsl.mcp"+mode, {}, 950, 550),
       add("output", "io.output", {}, 1200, 550),
       link("custom", "color", "output", "color"),
       { type: "SET_OUTPUT", payload: { nodeId: "output" } },

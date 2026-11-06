@@ -1,3 +1,4 @@
+import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 import { createExportSession } from "./session.mjs";
 import { createRuntimeHistory } from "./history.mjs";
 import { starsectorManifest } from "./manifest.mjs";
@@ -58,8 +59,7 @@ export const starsectorPlugin = {
       ...session,
       subscribe(fn) {
         const off = session.subscribe(fn);
-        own(off);
-        return off;
+        return ownCleanup(own, off);
       },
     }));
     operations.register([

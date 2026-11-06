@@ -21,10 +21,10 @@ export function createExportSession({
       geometry: s.vertexTransform,
     };
   };
-  const key = () => {
-    const s = snapshot();
-    return JSON.stringify([s.documentToken, s.catalogRevision, document()]);
-  };
+  // 视口、选区和预览时间并不改变导出内容。
+  const revisionKey = s => JSON.stringify([s.documentToken, s.documentRevision, s.catalogRevision]);
+  let currentKey = revisionKey(snapshot());
+  const key = () => revisionKey(workflow.revision?.() ?? snapshot());
   const emit = () => {
     for (const f of listeners)
       try {
@@ -42,11 +42,12 @@ export function createExportSession({
       throw Error("工作流已改变或导出已停用，请重新导出");
   };
   const off = workflow.subscribe(() => {
-    if (cache?.key !== key()) {
-      generation++;
-      cache = null;
-      last = null;
-    }
+    const next = key();
+    if (next === currentKey) return;
+    currentKey = next;
+    generation++;
+    cache = null;
+    last = null;
     emit();
   });
   function request() {

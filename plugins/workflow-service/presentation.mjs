@@ -129,7 +129,8 @@ export function createPresentationApi({
         validation = validateNodeProperty(node, d, key, value);
       fields.push({
         key,
-        label: key,
+        label: node.typeId === "input.time" && key === "defaultValue" ? "预览时间（秒）"
+          : node.typeId === "input.time" && key === "autoAdvance" ? "自动播放预览时间" : key,
         kind: bool ? "select" : "text",
         value: bool
           ? String(value).toLowerCase() === "true"

@@ -56,7 +56,8 @@ const tools = [
   {name:'workflow_get_preview_status',description:'读取 GPU 可用状态、当前挂载画布数量和高清视框状态，不读取或修改文件。',inputSchema:{type:'object',properties:{},additionalProperties:false}},
   {name:'workflow_get_compilation_status',description:'读取编译缓存命中、淘汰、在途任务和容量上限，不读取或修改文件。',inputSchema:{type:'object',properties:{},additionalProperties:false}},
   {name:'workflow_close_preview',description:'关闭当前 MCP 接入打开的高清视框并释放帧，不影响其他插件打开的视框。',inputSchema:{type:'object',properties:{},additionalProperties:false}},
-  {name:'workflow_open_preview',description:'在当前编辑器打开独立高清 GPU 视框，长边默认 2048，不修改工作流分辨率。',inputSchema:{type:'object',properties:{nodeId:{type:'string'},socket:{type:'string'},longEdge:{type:'integer',minimum:64,maximum:4096},time:{type:'number'}},additionalProperties:false}},
+  {name:'workflow_open_preview',description:'打开高清 GPU 视框，默认跟随编辑器的播放、暂停和定位。显式传 time 固定在该秒数，长边默认 2048。',inputSchema:{type:'object',properties:{nodeId:{type:'string'},socket:{type:'string'},longEdge:{type:'integer',minimum:64,maximum:4096},time:{type:'number'}},additionalProperties:false}},
+  {name:'workflow_set_preview_time',description:'设置当前编辑器共享的预览时间（秒）或播放状态，作用于节点、几何和跟随中的高清视框。定位并暂停请传 time 和 playing:false。',inputSchema:{type:'object',properties:{time:{type:'number'},playing:{type:'boolean'}},additionalProperties:false}},
   {name:'workflow_render_preview',description:'读取当前节点或完整特效的真实 GPU 预览。默认返回可直接查看的 MCP 图片及尺寸，longEdge 可取 1024/2048/4096 等尺寸，按工作流宽高比读取高清图，也可指定 width/height。format=data 时返回 dataUrl 供程序读取像素。不修改工作流、画布分辨率或文件。',inputSchema:{type:'object',properties:{nodeId:{type:'string'},socket:{type:'string'},width:{type:'integer',minimum:1,maximum:4096},height:{type:'integer',minimum:1,maximum:4096},longEdge:{type:'integer',minimum:64,maximum:4096},format:{enum:['image','data'],default:'image'},time:{type:'number'}},additionalProperties:false}},
   {
     name: "workflow_get_status",
@@ -315,7 +316,7 @@ const tools = [
   {
     name: "workflow_upsert_custom_node",
     description:
-      "Create or edit a user custom GLSL node. definition requires custom.* typeId, title, properties.parameters [{name,type,qualifier:in/out/inout}], properties.code (function body), and properties.sourceTargets (glsl-es-300 and/or glsl-430). helperSource is optional. Legacy expression definitions are rejected.",
+      "Create or edit a component in the custom.glsl plugin. Optional typeId must be custom.glsl.*, otherwise a fresh ID is allocated. Supply title, properties.parameters [{name,type,qualifier:in/out/inout}], properties.code (function body), and properties.sourceTargets (glsl-es-300 and/or glsl-430). helperSource is optional. Legacy expression definitions are rejected.",
     inputSchema: {
       type: "object",
       properties: { definition: { type: "object" } },
@@ -326,7 +327,7 @@ const tools = [
   {
     name: "workflow_delete_custom_node",
     description:
-      "Delete a user-defined custom.* node definition. Built-in definitions cannot be deleted.",
+      "Remove one component owned by custom.glsl. Existing graph nodes and links are preserved.",
     inputSchema: {
       type: "object",
       properties: { typeId: { type: "string" } },
@@ -645,6 +646,7 @@ export function createMcpTools({ readState, submit, bridge }) {
           includePreviewAssets,
         ),
         savedWorkflows: current.savedWorkflows || [],
+        customNodeEditing: !!current.customNodeEditing,
         customNodes: current.customNodes || [],
         workflowNodes: current.workflowNodes || [],
         catalog: current.catalog || [],
@@ -666,6 +668,7 @@ export function createMcpTools({ readState, submit, bridge }) {
         selection: current.selection || [],
         view: current.view || null,
         savedWorkflows: current.savedWorkflows || [],
+        customNodeEditing: !!current.customNodeEditing,
         customNodes: current.customNodes || [],
         workflowNodes: current.workflowNodes || [],
         vertexTransform: current.vertexTransform || null,
@@ -707,6 +710,11 @@ export function createMcpTools({ readState, submit, bridge }) {
     if (name === 'workflow_get_preview_status') return (await preview('status',{})).result;
     if (name === 'workflow_get_compilation_status') return (await preview('compilationStatus',{})).result;
     if (name === 'workflow_close_preview') return (await preview('close',{})).result;
+    if (name === 'workflow_set_preview_time') {
+      const input = Object.fromEntries(['time','playing'].filter(k => Object.hasOwn(args,k)).map(k => [k,args[k]]));
+      if (!Object.keys(input).length) throw Error('请提供预览秒数或播放状态');
+      return (await preview('setPlayback',input)).result;
+    }
     if (name === 'workflow_open_preview') {
       const input=Object.fromEntries(['nodeId','socket','longEdge','time'].filter(k=>Object.hasOwn(args,k)).map(k=>[k,args[k]]));
       return preview('open',input);

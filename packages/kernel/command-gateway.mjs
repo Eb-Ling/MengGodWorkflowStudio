@@ -3,6 +3,7 @@ import { cloneData, validateRequest } from "../plugin-sdk/contracts.mjs";
 // A public facade: consumers receive snapshots and results, never a mutable store.
 export function createCommandGateway({
   snapshot,
+  commandState = snapshot,
   graphTransaction,
   documentTransaction,
   action,
@@ -14,17 +15,17 @@ export function createCommandGateway({
         ok: false,
         error: error.message || String(error),
       });
-      const success = (result) => ({
-        ok: true,
-        revision: snapshot().graph.revision,
-        ...(snapshot().documentRevision !== undefined
-          ? { documentRevision: snapshot().documentRevision }
-          : {}),
-        ...(result === undefined ? {} : { result: cloneData(result) }),
-      });
+      const success = (result) => {
+        const committed = commandState();
+        return {
+          ok: true, revision: committed.graph.revision,
+          ...(committed.documentRevision !== undefined ? { documentRevision: committed.documentRevision } : {}),
+          ...(result === undefined ? {} : { result: cloneData(result) }),
+        };
+      };
       try {
         const { commands, actions, transaction } = validateRequest(request);
-        const current = snapshot();
+        const current = commandState();
         if (
           request.documentId !== current.project.id ||
           request.documentToken !== current.documentToken
@@ -58,13 +59,7 @@ export function createCommandGateway({
           if (result?.then) return result.then(success).catch(failure);
           return success(result);
         }
-        return {
-          ok: true,
-          revision: snapshot().graph.revision,
-          ...(snapshot().documentRevision !== undefined
-            ? { documentRevision: snapshot().documentRevision }
-            : {}),
-        };
+        return success();
       } catch (error) {
         return failure(error);
       }

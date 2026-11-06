@@ -59,6 +59,7 @@ export async function pluginDevkitBytes() {
   files.push({ filename: "examples/sdk-effect/probes.mjs", content: await fs.readFile("build/examples/sdk-effect/probes.mjs", "utf8") });
   for (const folder of [
     "minimal-node",
+    "glsl-node",
     "minimal-panel",
     "minimal-editor-panel",
     "sdk-effect",

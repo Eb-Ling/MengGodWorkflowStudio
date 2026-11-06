@@ -1,5 +1,5 @@
 const clone = structuredClone;
-// 最小阶段/输入、控制流与用户 GLSL。算法插件通过 NodeApi 另行贡献。
+// 最小阶段/输入、控制流。算法插件通过 NodeApi 另行贡献。
 const builtins = [
   {
     typeId: "input.position",
@@ -400,92 +400,7 @@ const builtins = [
     ],
     properties: {},
   },
-  {
-    typeId: "custom.radialFade",
-    title: "径向 Fade（自定义 GLSL）",
-    category: "自定义 GLSL",
-    inputs: [
-      {
-        name: "distance",
-        type: "FLOAT",
-      },
-    ],
-    outputs: [
-      {
-        name: "value",
-        type: "FLOAT",
-      },
-    ],
-    properties: {
-      sourceTargets: ["glsl-es-300", "glsl-430"],
-      functionName: "wf_radial_fade",
-      parameters: [
-        {
-          id: "distance",
-          name: "distance",
-          type: "float",
-          qualifier: "in",
-        },
-        {
-          id: "value",
-          name: "value",
-          type: "float",
-          qualifier: "out",
-        },
-      ],
-      code: "value = 1.0 - smoothstep(0.5, 1.0, distance);",
-    },
-  },
-  {
-    typeId: "custom.innerFade",
-    title: "内环 Fade（自定义 GLSL）",
-    category: "自定义 GLSL",
-    inputs: [
-      {
-        name: "distance",
-        type: "FLOAT",
-      },
-      {
-        name: "time",
-        type: "FLOAT",
-      },
-    ],
-    outputs: [
-      {
-        name: "value",
-        type: "FLOAT",
-      },
-    ],
-    properties: {
-      sourceTargets: ["glsl-es-300", "glsl-430"],
-      functionName: "wf_inner_fade",
-      parameters: [
-        {
-          id: "distance",
-          name: "distance",
-          type: "float",
-          qualifier: "in",
-        },
-        {
-          id: "time",
-          name: "time",
-          type: "float",
-          qualifier: "in",
-        },
-        {
-          id: "value",
-          name: "value",
-          type: "float",
-          qualifier: "out",
-        },
-      ],
-      code: "float wave = 0.025 * sin(time * 3.0); value = smoothstep(0.25 + wave, 0.5 + wave, distance);",
-    },
-  },
 ];
-export function createNodeCatalog({ overrides = {}, customNodes = [] } = {}) {
-  return [
-    ...builtins.map((n) => clone(overrides[n.typeId] || n)),
-    ...clone(customNodes),
-  ];
+export function createNodeCatalog() {
+  return clone(builtins);
 }
