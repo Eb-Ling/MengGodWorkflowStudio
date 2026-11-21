@@ -14,7 +14,7 @@ const output=path.join(root,'release',releaseFolder),staging=path.join(root,'bui
 buildResourceGuard();
 await buildUi();
 await fs.mkdir(staging,{recursive:true});
-for(const file of ['main.cjs','preload.cjs','bridge-port.cjs','profile-storage.cjs','plugin-controller.cjs','project-controller.cjs','access-controller.cjs','mcp-credentials.cjs'])await fs.copyFile(path.join(desktop,file),path.join(staging,file));
+for(const file of pkg.build.files)await fs.copyFile(path.join(desktop,file),path.join(staging,file));
 await fs.writeFile(path.join(staging,'package.json'),JSON.stringify({name:pkg.name,version:pkg.version,main:pkg.main,productName:pkg.build.productName},null,2));
 // 已运行的 Windows DLL/EXE 会被锁定，内容相同无需重写。不同内容仍正常报错，不强制关闭用户程序。
 async function sameFile(source,target){

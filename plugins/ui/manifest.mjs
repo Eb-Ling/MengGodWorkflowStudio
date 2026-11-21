@@ -19,6 +19,7 @@ export const uiManifest = {
           "addView",
           "addRenderer",
           "addDock",
+          "onVisibilityChange",
         ].map((name) => [
           name,
           { capability: name === "addRenderer" ? "ui.renderers" : "ui.panels" },

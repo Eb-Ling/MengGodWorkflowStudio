@@ -377,6 +377,8 @@ export interface UiScope extends Disposable {
   ): Disposable & { update(props: Record<string, unknown>): void };
 }
 export interface UiApi {
+  /** 立即报告窗口是否可见，最小化或隐藏后为 false。返回取消订阅函数，插件停用时也会清理。用于暂停界面动画，不得停止后台通信。 */
+  onVisibilityChange(listener: (visible: boolean) => void): () => void;
   /** 注册独立停靠面板，只影响工作区显示，不改变图的顺序或游戏渲染层。 */
   addDock(dock: {
     id: string;

@@ -126,6 +126,25 @@ L1 状态与登记适配器仅供限定内置能力持有，不能借 Adapter �
 
 `frontend/application/studio-plugins.ts`、`ai-gateway/server.mjs`、`desktop/main.cjs` 是组合根。三处分别负责渲染器装配、原生状态配置、内置源码目录，门禁核对清单一致。外部目录插件不需要改这三处。
 
+桌面帮助菜单由 `desktop/main.cjs` 装配 `desktop/support-menu.cjs`，提供问题反馈、功能建议和已有反馈入口。它只使用应用版本与系统信息生成固定仓库的链接，由系统浏览器打开，用户在 GitHub 确认提交。此路径不进入工作流插件、MCP 或内核，不读取文档、日志和接入凭据，也不向插件增加原生接口。
+
+桌面窗口生命周期与后台通信分离。`desktop/window-lifecycle.cjs` 保持页面请求处理运行，通过受检的预加载桥接报告真实最小化和隐藏状态。`frontend/application/window-visibility.mjs` 适配桌面与浏览器，状态沿 `platform.ui-shell → studio.ui.onVisibilityChange` 交给预览插件和画布组件。预览动画在不可见时暂停，MCP 按需取图仍可执行。窗口关闭、组件卸载和插件停用均回收对应监听，不向内核增加窗口或 MCP 业务。
+
+```mermaid
+flowchart TB
+  Native["L1 桌面窗口生命周期<br/>desktop/window-lifecycle.cjs"] --> Port["L1 平台可见性接口<br/>window-visibility.mjs / studio-plugins.ts"]
+  Port --> UI["L2 UI 公共接口<br/>plugins/ui/service.ts"]
+  UI --> Preview["L2 预览动画调度<br/>plugins/preview/index.ts / controller.mjs"]
+  UI --> Canvas["L3 节点缩略图<br/>plugins/workflow-ui/PreviewSurface.vue"]
+  MCP["L2 MCP 后台请求<br/>plugins/mcp-connection/editor-client.mjs"] -->|按需取图| Preview
+```
+
+```mermaid
+flowchart LR
+  Menu["桌面帮助菜单<br/>desktop/main.cjs"] --> Support["反馈链接与打开失败处理<br/>desktop/support-menu.cjs"]
+  Support --> Browser["系统浏览器<br/>GitHub Issues"]
+```
+
 <!-- manifest-reference -->
 
 ## 按插件阅读

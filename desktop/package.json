@@ -23,6 +23,8 @@
       "profile-storage.cjs",
       "plugin-controller.cjs",
       "project-controller.cjs",
+      "support-menu.cjs",
+      "window-lifecycle.cjs",
       "access-controller.cjs",
       "mcp-credentials.cjs"
     ],

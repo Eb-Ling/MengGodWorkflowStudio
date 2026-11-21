@@ -6,9 +6,17 @@ $folder = Join-Path $release 'MengGod-Workflow-Studio-1.0.0-win-x64'
 if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw '请先构建本地发布目录' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = $folder + '.zip'
-$pending = $folder + '.pending.zip'
-if (Test-Path -LiteralPath $pending) { throw '存在未完成的发布 ZIP，请先核对' }
-[IO.Compression.ZipFile]::CreateFromDirectory($folder,$pending,[IO.Compression.CompressionLevel]::Optimal,$false)
+$pending = $folder + '.' + [Guid]::NewGuid().ToString('N') + '.pending.zip'
+# 运行日志不属于分发文件，既不读取也不修改，应用运行时也不会因此锁住打包。
+$runtimeLog = Join-Path $folder 'debug.log'
+$sourceFiles = @(Get-ChildItem -LiteralPath $folder -Recurse -File | Where-Object { $_.FullName -ne $runtimeLog })
+$archive = [IO.Compression.ZipFile]::Open($pending,[IO.Compression.ZipArchiveMode]::Create)
+try {
+  foreach ($sourceFile in $sourceFiles) {
+    $entryName = [IO.Path]::GetRelativePath($folder,$sourceFile.FullName).Replace('\','/')
+    [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$sourceFile.FullName,$entryName,[IO.Compression.CompressionLevel]::Optimal)
+  }
+} finally { $archive.Dispose() }
 $archive = [IO.Compression.ZipFile]::OpenRead($pending)
 $count = 0
 try {
@@ -23,7 +31,7 @@ try {
     if ($actual -ne (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash) { throw ('ZIP 内容不一致：' + $entry.FullName) }
     $count++
   }
-  if ($count -ne @(Get-ChildItem -LiteralPath $folder -Recurse -File).Count) { throw 'ZIP 文件数不一致' }
+  if ($count -ne $sourceFiles.Count) { throw 'ZIP 文件数不一致' }
 } finally { $archive.Dispose() }
 Move-Item -LiteralPath $pending -Destination $zip -Force
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()

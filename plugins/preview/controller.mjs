@@ -299,6 +299,7 @@ export function createPreviewController({ workflow, renderer, model, compilation
     status: () => ({
       ...renderer.status(),
       ...playback.status(),
+      pageVisible,
       viewerOpen: model.visible,
       viewerVisible: !!current && canDrawViewer(),
       viewerFrames,

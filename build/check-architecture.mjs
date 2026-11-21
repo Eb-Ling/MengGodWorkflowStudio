@@ -43,6 +43,7 @@ files.push(
   "desktop/project-controller.cjs",
   "desktop/access-controller.cjs",
   "desktop/mcp-credentials.cjs",
+  "desktop/window-lifecycle.cjs",
 );
 for (const dir of ["packages", "plugins"])
   for (const name of await fs.readdir(path.join(root, dir))) {

@@ -5,7 +5,6 @@ import {
   watch,
   nextTick,
   onBeforeUnmount,
-  onMounted,
 } from "vue";
 import type { Component } from "vue";
 import { fitView, zoomView } from "./view-transform.mjs";
@@ -28,7 +27,6 @@ const props = defineProps<{
   actions: {
     attachCanvas(target: HTMLCanvasElement | null): void;
     setPlayback(input: { playing?: boolean; time?: number }): void;
-    setPageVisible(visible: boolean): void;
     setViewport(region: {left:number;top:number;right:number;bottom:number} | null | undefined): void;
     refresh(): void;
     close(): void;
@@ -128,14 +126,6 @@ watch(canvas, (element) => {
     scheduleRegion();
   }
 }, { flush: "post" });
-function pageVisibility() {
-  props.actions.setPageVisible(!document.hidden);
-  if (!document.hidden) scheduleRegion();
-}
-onMounted(() => {
-  pageVisibility();
-  document.addEventListener("visibilitychange", pageVisibility);
-});
 function seek(event: Event) {
   const input = event.target as HTMLInputElement;
   if (Number.isFinite(input.valueAsNumber)) props.actions.setPlayback({ time: input.valueAsNumber, playing: false });
@@ -156,7 +146,6 @@ watch(viewport, (element) => {
   }
 }, { flush: "post" });
 onBeforeUnmount(() => {
-  document.removeEventListener("visibilitychange", pageVisibility);
   cancelAnimationFrame(visibilityFrame);
   onScreen?.disconnect();
   observer?.disconnect();

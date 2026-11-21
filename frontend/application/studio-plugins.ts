@@ -1,6 +1,7 @@
 import { ownCleanup } from "../../packages/plugin-sdk/registration.mjs";
 import { createPluginControl } from "./plugin-control.mjs";
 import { createLocalTransport } from "./local-transport.mjs";
+import { observeWindowVisibility } from "./window-visibility.mjs";
 import { mcpConnectionPlugin } from "../../plugins/mcp-connection/index";
 import { pluginServicePlugin } from "../../plugins/plugin-service/index.mjs";
 import { createWorkspacePorts } from "./workspace-ports.mjs";
@@ -179,9 +180,12 @@ export async function startStudioPlugins() {
       mount(surface: unknown) {
         own(mountUiSurface(surface));
       },
+      onVisibilityChange(listener: (visible: boolean) => void) {
+        return ownCleanup(own, observeWindowVisibility(document, (window as any).workflowDesktop, listener));
+      },
     }),
     true,
-    { methods: { mount: { capability: "ui.shell.mount" } } },
+    { methods: { mount: { capability: "ui.shell.mount" }, onVisibilityChange: { capability: "ui.shell.mount" } } },
   );
   host.provide("workflow.operations", "1.0.0", ports.operationApi, true, {
     methods: {

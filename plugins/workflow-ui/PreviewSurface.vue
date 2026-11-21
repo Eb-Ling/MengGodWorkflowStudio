@@ -3,8 +3,9 @@ import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 const props = defineProps<{ session: any; nodeId: string; socket: string; navigating: boolean }>(),
   canvas = ref<HTMLCanvasElement>();
 let live = true, visible = false, view: any = null, observer: IntersectionObserver | undefined;
+let pageVisible = false, stopVisibility: (() => void) | undefined;
 async function draw() {
-  if (!live || !visible || props.navigating || document.hidden || !canvas.value) return;
+  if (!live || !visible || props.navigating || !pageVisible || !canvas.value) return;
   const s = props.session.snapshot.value;
   try {
     view ||= props.session.preview.mount(canvas.value);
@@ -21,7 +22,7 @@ async function draw() {
 }
 let invalid = true;
 function requestDraw() {
-  if (!live || !visible || props.navigating || document.hidden || !invalid) return;
+  if (!live || !visible || props.navigating || !pageVisible || !invalid) return;
   invalid = false;
   void draw();
 }
@@ -40,12 +41,15 @@ watch(
   },
 );
 function syncActivity() {
-  view?.setActive(visible && !props.navigating && !document.hidden);
+  view?.setActive(visible && !props.navigating && pageVisible);
   requestDraw();
 }
 watch(() => props.navigating, syncActivity);
 onMounted(() => {
-  document.addEventListener("visibilitychange", syncActivity);
+  stopVisibility = props.session.ui.onVisibilityChange((value: boolean) => {
+    pageVisible = value;
+    syncActivity();
+  });
   if (!canvas.value) return;
   observer = new IntersectionObserver(([entry]) => {
     if (!live || !entry || visible === entry.isIntersecting) return;
@@ -58,7 +62,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   live = false;
   observer?.disconnect();
-  document.removeEventListener("visibilitychange", syncActivity);
+  stopVisibility?.();
   view?.dispose();
   view = null;
 });

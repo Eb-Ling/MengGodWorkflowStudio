@@ -9,9 +9,10 @@ import { createWorkspaceState } from "./workspace-registry";
 import {
   registration,
   ownRegistration,
+  ownCleanup,
 } from "../../packages/plugin-sdk/registration.mjs";
 /** 实例化的 UI 提供者，注册表、组件作用域与窗口状态都随该插件销毁。 */
-export function createUiService() {
+export function createUiService(shell: { onVisibilityChange: UiApi["onVisibilityChange"] }) {
   const registry = createComponentRegistry(ThemeProvider),
     workspace = createWorkspaceState();
   const settings = shallowRef<any[]>([]),
@@ -75,6 +76,10 @@ export function createUiService() {
     }
     return {
       components: uiComponents,
+      onVisibilityChange(listener) {
+        check(owner + ".visibility");
+        return ownCleanup(own, shell.onVisibilityChange(listener));
+      },
       ...workspace.createWorkspaceRegistration(owner, own),
       addSettingsPanel(p) {
         const category = p.category || "settings";

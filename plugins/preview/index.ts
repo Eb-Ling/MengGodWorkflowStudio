@@ -68,6 +68,7 @@ export const previewPlugin = {
     });
     const service = createPreviewService(controller);
     context.onDispose(() => service.dispose());
+    ui.onVisibilityChange(controller.setPageVisible);
     context.provide("workflow.preview", service.createApi);
     ui.addOverlay({
       id: "studio.preview.viewer",
@@ -78,7 +79,6 @@ export const previewPlugin = {
         model,
         actions: {
           attachCanvas: controller.attachCanvas,
-          setPageVisible: controller.setPageVisible,
           setViewport: controller.setViewport,
           setPlayback: controller.editViewerPlayback,
           close: controller.close,

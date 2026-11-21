@@ -1,4 +1,34 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const visibilityChannel = "workflowDesktop:windowVisibility";
+const visibilityListeners = new Set();
+let windowVisible = false;
+const receiveVisibility = (_event, visible) => {
+  windowVisible = visible === true;
+  for (const listener of [...visibilityListeners]) {
+    try { listener(windowVisible); }
+    catch (error) { console.error("窗口可见性订阅失败", error); }
+  }
+};
+// 所有预览组件共用一条原生监听，避免节点增多时重复同步 IPC 与监听器累积。
+const onWindowVisibility = (callback) => {
+  if (!visibilityListeners.size) {
+    ipcRenderer.on(visibilityChannel, receiveVisibility);
+    try { windowVisible = ipcRenderer.sendSync(visibilityChannel) === true; }
+    catch (error) {
+      ipcRenderer.removeListener(visibilityChannel, receiveVisibility);
+      throw error;
+    }
+  }
+  const listener = (visible) => callback(visible);
+  visibilityListeners.add(listener);
+  const stop = () => {
+    visibilityListeners.delete(listener);
+    if (!visibilityListeners.size) ipcRenderer.removeListener(visibilityChannel, receiveVisibility);
+  };
+  try { listener(windowVisible); }
+  catch (error) { stop(); throw error; }
+  return stop;
+};
 const storageCall = (method, ...args) => {
   const result = ipcRenderer.sendSync(
     "workflowDesktop:storage",
@@ -13,6 +43,7 @@ contextBridge.exposeInMainWorld("workflowDesktop", {
   mcpStatus: () => ipcRenderer.invoke("workflowDesktop:mcpStatus"),
   copyText: (value) => ipcRenderer.invoke("workflowDesktop:copyText", value),
   packaged: true,
+  onWindowVisibility,
   projects: {
     // 仅接受用户在文件输入框选中的真实 File，JS 构造的 File 没有磁盘路径。
     fromFile: (file) => {

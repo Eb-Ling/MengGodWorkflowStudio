@@ -13,6 +13,16 @@
 | 在受信任插件中保存、预览或导出 | `workflow.workspace`、`workflow.preview`、`workflow.export` | 共用编辑器的保存守卫、GPU 与导出规则 |
 | 在外部 AI 客户端操作 | MCP `tools/list` 和 `tools/call` | 依用户授予的权限获取摘要、编辑、读取真实图片与原始三文件 |
 
+## 监听窗口可见性
+
+受信任的界面插件可通过 `studio.ui.onVisibilityChange(listener)` 监听窗口可见性，需要声明 `studio.ui` 和 `ui.panels`。注册时立即回调，窗口最小化或隐藏时传入 `false`，恢复时传入 `true`。返回函数用于取消订阅，插件停用时也会自动清理。桌面状态由宿主提供，网页状态来自浏览器。仅将其用于暂停界面动画，后台通信应持续处理请求。
+
+```js
+const ui = context.api('studio.ui')
+const stop = ui.onVisibilityChange(visible => animation.setActive(visible))
+// 组件提前卸载时调用 stop()，插件停用时宿主也会兜底清理。
+```
+
 ## 创建一个可登记的节点
 
 在文件夹中放入 `studio-plugin.json` 和 `index.mjs`。下面两个文件构成可工作的最小特效节点。应用内选择「插件 → 插件管理 → 添加本地插件」，审阅后登记。两个阶段都可以使用这个输出 0.5 的节点。
@@ -322,6 +332,8 @@ engine.addLayeredRenderingPlugin(effect);
 ### workflow.preview
 
 顶点与片段的时间节点、几何和高清视框共用预览时钟。可见画布随时间播放，高清视框打开期间暂停普通画布的动画。mount 返回的 setActive 可在拖拽或隐藏时暂停画布，恢复时绘制当前时间。status 的 mountedFrames 统计普通画布实际呈现次数。高清窗口只绘制可见区域，切换阶段或文档会关闭旧窗口并释放该视图的 GPU 资源。setPlayback 设置秒数或播放状态，subscribePlayback 立即订阅。frame 和 open 省略 time 时跟随时钟，显式传 time 可固定采样。
+
+`status.pageVisible` 报告真实窗口可见性，`clockTimer` 报告预览时钟是否实际运行。最小化时保留 `playback.playing` 的播放意图，但暂停时钟和界面绘制，恢复后从原时间继续。`frame` 和 MCP `workflow_render_preview` 属于按需取图，窗口最小化时仍可执行，显式采样不会修改播放时间。
 
 提供者：[preview/manifest.mjs](../plugins/preview/manifest.mjs)，版本 `1.0.0`，契约类型 `local`。 [SDK 类型](../packages/plugin-sdk/types.ts)
 

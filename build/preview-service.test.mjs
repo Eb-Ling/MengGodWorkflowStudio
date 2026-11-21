@@ -383,6 +383,34 @@ test("可见画布连续播放，高清视框优先，隐藏或切换阶段后�
   } finally { f.service.dispose(); }
 });
 
+test("窗口最小化暂停动画但仍可按 MCP 请求生成图片，恢复后接着播放", async (t) => {
+  t.mock.timers.enable({apis:["setInterval"]});
+  let now=1000;
+  t.mock.method(performance,"now",()=>now);
+  const f=fixture(),api=f.service.createApi("background",()=>{}),view=api.mount(canvas());
+  try {
+    const first=view.render();f.jobs.at(-1).finish();await first;
+    api.setPlayback({playing:true});
+    f.controller.setPageVisible(false);
+    const paused=api.status().playback.time;
+    for(let i=0;i<3;i++){
+      now+=60000;t.mock.timers.tick(60000);await tick();
+      assert.equal(f.jobs.length,1);
+      assert.equal(api.status().pageVisible,false);
+      assert.equal(api.status().clockTimer,false);
+      assert.equal(api.status().playback.time,paused);
+    }
+    const requested=api.frame({width:1024,height:1024,time:5});
+    f.jobs.at(-1).finish();
+    assert.deepEqual(await requested,{width:1024,height:1024,time:5,dataUrl:"data:image/png;base64,frame",stage:"fragment"});
+    assert.equal(api.status().playback.time,paused,'按需取图不拨动预览时间');
+    f.controller.setPageVisible(true);
+    now+=100;t.mock.timers.tick(83);
+    assert.equal(f.jobs.length,3);f.jobs.at(-1).finish();await tick();
+    assert.ok(api.status().playback.time>=paused && api.status().playback.time<paused+1,'恢复后不补跑后台经过的三分钟');
+  } finally {f.service.dispose();}
+});
+
 test("动画慢帧仍能完成呈现，关闭高清图后普通预览恢复播放", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   let now = 1000;

@@ -5,7 +5,8 @@ import ComponentWorkshop from "./ComponentWorkshop.vue";
 export const uiPlugin = {
   manifest: uiManifest,
   activate(context: PluginContext) {
-    const service = createUiService();
+    const shell = context.api<any>("platform.ui-shell");
+    const service = createUiService(shell);
     context.onDispose(() => service.dispose());
     context.provide("studio.ui", service.scoped);
     const ui = service.scoped(context.pluginId, (fn) => context.onDispose(fn));
@@ -14,6 +15,6 @@ export const uiPlugin = {
       component: ComponentWorkshop,
       props: { registry: service.registry, model: service.model },
     });
-    context.api<any>("platform.ui-shell").mount(service.surface);
+    shell.mount(service.surface);
   },
 };

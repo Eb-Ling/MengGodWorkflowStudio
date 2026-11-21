@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, clipboard } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, clipboard, shell } = require("electron");
 const fs = require("node:fs");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
@@ -9,6 +9,8 @@ const { reservePort } = require("./bridge-port.cjs");
 const { createProfileStorage } = require("./profile-storage.cjs");
 const { installPluginController } = require("./plugin-controller.cjs");
 const { installProjectController } = require("./project-controller.cjs");
+const { supportMenuItems } = require("./support-menu.cjs");
+const { installWindowLifecycle } = require("./window-lifecycle.cjs");
 
 const root = app.isPackaged
   ? process.resourcesPath
@@ -97,6 +99,8 @@ function installApplicationMenu() {
       {
         label: "帮助",
         submenu: [
+          ...supportMenuItems({ app, shell, dialog, clipboard }),
+          { type: "separator" },
           {
             label: "关于 MengGod Workflow Studio",
             click: async () => {
@@ -280,6 +284,7 @@ async function createWindow() {
     },
   });
   mainWindow = window;
+  installWindowLifecycle({ window, ipcMain, isAllowed: isTrustedMain });
   window.once("closed", () => app.quit());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
